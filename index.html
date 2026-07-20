@@ -1328,14 +1328,20 @@ function mapLvRange(id){
   }
   return MAP_LV[id];
 }
-// 지금 레벨에 가장 알맞은, 이미 가본 사냥터
+// 지금 레벨에 가장 알맞은 사냥터.
+// (버그 수정 2026-07-20) 예전엔 "레벨을 담을 수 있는 상한이 가장 높은 곳"을 골랐는데,
+// 필드 레벨대가 Lv.2~26으로 잡혀서 용의 둥지(Lv.20~26)와 점수가 같았다. 동점이면
+// 목록 첫 번째인 필드가 이겨서, 레벨에 안 맞는 사냥터에서 자동사냥을 돌리면 알맞은
+// 상위 사냥터가 아니라 마을 옆 카르돈 필드로 계속 튕겨 나왔다.
+// 이제 "내 레벨을 감당할 수 있는 사냥터 중 하한(min)이 가장 깊은 곳"을 고른다.
+// 방문 여부로 막지 않는다 — 아래 하한 가드가 감당 못 할 곳을 걸러주고(그리고
+// changeMap이 방문 기록을 남기므로) 방치형답게 레벨에 맞춰 자동으로 전진한다.
 function bestMapFor(lv){
-  let best = null, bs = -1;
+  let best = null, bs = -Infinity;
   for(const k in MAP_DEFS){
-    if(k !== 'field' && !player.visited.includes(k)) continue;
     const r = mapLvRange(k); if(!r) continue;
-    if(lv < r.min * 0.75) continue;              // 아직 감당 못 하는 곳
-    const sc = Math.min(lv, r.max) - Math.max(0, lv - r.max) * 2;  // 레벨이 넘치면 감점
+    if(lv < r.min * 0.9) continue;                    // 아직 감당 못 하는 곳
+    const sc = r.min - Math.max(0, lv - r.max) * 2;   // 하한이 깊을수록↑, 상한을 넘기면↓
     if(sc > bs){ bs = sc; best = k; }
   }
   return best;
