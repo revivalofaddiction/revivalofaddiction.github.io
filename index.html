@@ -11,10 +11,14 @@
     position:absolute; background:rgba(12,10,8,.94); border:1px solid #7a6a45;
     color:#e8dcc0; padding:12px; border-radius:4px; box-shadow:0 0 20px rgba(0,0,0,.8);
     font-size:13px; z-index:20; display:none;
+    /* 목록이 길어지면 화면 밖으로 넘어간다. Lv.70+ 에서 변신이 30종 넘게 쌓이면
+       화면 축소 없이는 아래쪽을 볼 수 없었다 (PatternKlutzy6437 제보).
+       패널마다 따로 걸면 새 패널에서 또 터지므로 전체에 건다. */
+    max-height:calc(100vh - 140px); overflow-y:auto; overscroll-behavior:contain;
   }
   .panel h3 { color:#d4b96a; border-bottom:1px solid #5a4d33; padding-bottom:6px; margin-bottom:8px; font-size:15px; }
   .panel .close { position:absolute; top:8px; right:10px; cursor:pointer; color:#a99; }
-  #inv { top:60px; right:16px; width:404px; max-height:80vh; overflow-y:auto; }
+  #inv { top:60px; right:16px; width:404px; max-height:calc(100vh - 90px); overflow-y:auto; }
   .invsec { color:#b7ab8d; font-size:11px; letter-spacing:1px; margin:8px 0 5px; }
   .doll {
     display:grid; gap:5px 12px; justify-content:center; margin-bottom:6px;
@@ -217,7 +221,7 @@
 <div class="panel" id="shop"><span class="close" onclick="togglePanel('shop')">✕</span><h3>카르돈 상점</h3><div id="shopBody"></div></div>
 <div class="panel" id="morph" style="top:120px; left:50%; transform:translateX(-50%); width:320px;"><span class="close" onclick="document.getElementById('morph').style.display='none'">✕</span><h3>변신</h3><div id="morphBody"></div></div>
 <div class="panel" id="move" style="top:120px; left:50%; transform:translateX(-50%); width:300px;"><span class="close" onclick="document.getElementById('move').style.display='none'">✕</span><h3>순간이동</h3><div id="moveBody"></div></div>
-<div class="panel" id="wh" style="top:80px; left:50%; transform:translateX(-50%); width:370px; max-height:74vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('wh').style.display='none'">✕</span><h3>카르돈 창고</h3><div id="whBody"></div></div>
+<div class="panel" id="wh" style="top:80px; left:50%; transform:translateX(-50%); width:370px; max-height:calc(100vh - 110px); overflow-y:auto;"><span class="close" onclick="document.getElementById('wh').style.display='none'">✕</span><h3>카르돈 창고</h3><div id="whBody"></div></div>
 <div class="panel" id="hbpick" style="bottom:100px; left:50%; transform:translateX(-50%); width:300px; max-height:50vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('hbpick').style.display='none'">✕</span><h3>단축바 등록</h3><div id="hbpickBody"></div></div>
 <div class="panel" id="ench" style="top:90px; left:50%; transform:translateX(-50%); width:368px; max-height:74vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('ench').style.display='none'">✕</span><h3>⚒ 장비 강화</h3><div id="enchBody"></div></div>
 <div class="panel" id="board" style="top:70px; left:50%; transform:translateX(-50%); width:400px; max-height:76vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('board').style.display='none'">✕</span><h3>📜 카르돈 게시판</h3><div id="boardBody"></div></div>
