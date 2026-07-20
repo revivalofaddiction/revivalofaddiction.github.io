@@ -7,7 +7,7 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { width:100%; height:100%; overflow:hidden; background:#000; font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif; }
-  #game { display:block; width:100%; height:100%; cursor:crosshair; }
+  #game { display:block; width:100%; height:100%; cursor:crosshair; touch-action:none; }
   .panel {
     position:absolute; background:rgba(12,10,8,.94); border:1px solid #7a6a45;
     color:#e8dcc0; padding:12px; border-radius:4px; box-shadow:0 0 20px rgba(0,0,0,.8);
@@ -234,6 +234,7 @@
   <button id="dailyBtn" onclick="togglePanel('daily')" title="오늘의 목표와 보상">🎯 목표</button>
   <button id="autoBtn" onclick="toggleAuto()">자동사냥</button>
   <button id="sleepBtn" onclick="toggleSleep()" title="Lv.20 해금 — 화면을 끄고 자동사냥 지속">💤 수면</button>
+  <button id="muteBtn" onclick="toggleMute()" title="소리 켜기 / 끄기 (M)">🔊</button>
   <button onclick="redeemCoupon()" title="후원 쿠폰 입력">🎁</button>
   <button onclick="window.open('https://revivalofaddiction.itch.io/revival-of-addiction#comments','_blank')" title="버그 신고 / 의견 보내기">💬</button>
   <button id="shopBtn" onclick="openShop()">상점</button>
@@ -632,6 +633,15 @@ function noiseBurst(start, dur, vol, freq){
   const g = audioC.createGain(); g.gain.value = vol;
   src.connect(bp); bp.connect(g); g.connect(audioC.destination);
   src.start(audioC.currentTime + start);
+}
+function toggleMute(){
+  muted = !muted;
+  const b = document.getElementById('muteBtn');
+  if(b) b.textContent = muted ? '🔇' : '🔊';
+  log(muted ? '음소거 켜짐' : '음소거 꺼짐', 'sys');
+  if(!muted){ // 음소거 해제는 사용자 제스처 — 모바일 오디오 컨텍스트를 여기서 살린다
+    try{ audioC = audioC || new (window.AudioContext||window.webkitAudioContext)(); if(audioC.state==='suspended') audioC.resume(); }catch(e){}
+  }
 }
 function sfx(name){
   if(muted) return;
@@ -1892,6 +1902,15 @@ function enchItemOf(c){
 function sameRef(a,b){
   return !!(a && b && a.type===b.type && (a.type==='equip' ? a.slot===b.slot : a.id===b.id));
 }
+// 강화 성공 확률: +6까지는 안전(100%). 그 위는 강화 수치가 오를수록 확률이 가파르게 떨어진다.
+// (2026-07-20 AJ 제보: +11→+12가 50% 고정이라 너무 쉬웠음 — 레벨당 20%씩 체감하는 곡선으로 교체)
+// 축복받은 주문서는 실패해도 파괴되지 않지만 확률 곡선 자체는 동일하다.
+function enchSuccess(ench, blessed){
+  if(ench < 6) return 1;                       // 안전 구간
+  const base = blessed ? 0.5 : 0.33;           // +6→+7 시작 확률(기존 값 유지)
+  const rate = base * Math.pow(0.8, ench - 6); // 한 단계 오를 때마다 ×0.8
+  return Math.max(blessed ? 0.05 : 0.03, rate);// 바닥 확률(무한정 0으로 가지 않게)
+}
 function enchTarget(){
   if(!enchState || !enchState.selRef) return null;
   const r = enchState.selRef;
@@ -1930,7 +1949,7 @@ function renderEnchant(){
   const it = enchTarget();
   if(it){
     const safe = it.ench < 6;
-    const rate = safe ? 100 : (sc.blessed ? 50 : 33);
+    const rate = Math.round(enchSuccess(it.ench, sc.blessed) * 100);
     h += `<div style="margin-top:10px;padding-top:9px;border-top:1px solid #3a3226;font-size:12px;line-height:1.8">
       <b class="g${it.grade}">${dispName(it)}</b> → <b style="color:#ffd24d">+${it.ench+1}</b>
       &nbsp;·&nbsp; 성공 확률 <b style="color:${safe?'#9fd08a':'#ffd24d'}">${rate}%</b><br>
@@ -1954,7 +1973,7 @@ function doEnchant(mode){
     if(mode==='safe' && it.ench>=6){ if(n===0) log('이미 +6입니다. 그 위로는 [강화 1회]로 도전하세요.','warn'); break; }
     const ref = enchState.selRef;
     consumeOne(sc);
-    const ok = it.ench<6 ? true : Math.random() < (sc.blessed ? .5 : .33);
+    const ok = Math.random() < enchSuccess(it.ench, sc.blessed);
     if(ok){
       it.ench++;
       log(`빛이 ${dispName(it)} 을(를) 감쌉니다. 강화 성공! (+${it.ench})`,'sys');
@@ -2934,7 +2953,7 @@ addEventListener('keydown', e=>{
   for(let i=1;i<=8;i++){
     if(c==='Digit'+i || c==='Numpad'+i){ useHotbar(i-1); break; }
   }
-  if(c==='KeyM'){ muted = !muted; log(muted?'음소거 켜짐':'음소거 꺼짐','sys'); }
+  if(c==='KeyM'){ toggleMute(); }
   const KEY_SPELL = {KeyQ:'Q', KeyE:'E', KeyR:'R', KeyT:'T', KeyF:'F'};
   if(KEY_SPELL[c] && player){
     const sp = SPELLS.find(s=>s.key===KEY_SPELL[c] && s.cls===player.cls);
@@ -2952,10 +2971,13 @@ function screenToTile(sx, sy){
 function tileToScreen(x, y){
   return { x: (x-y)*(TILE_W/2) - camX + cv.width/2, y: (x+y)*(TILE_H/2) - camY + cv.height/2 };
 }
-cv.addEventListener('mousedown', e=>{
+// 포인터(마우스+터치 통합)로 이동/타깃. 터치에서도 즉시 반응하도록 pointerdown 사용.
+cv.addEventListener('pointerdown', e=>{
   if(!running || player.dead) return;
-  if(sleepMode){ toggleSleep(); return; }   // 수면 중 클릭 → 기상
-  const t = screenToTile(e.clientX, e.clientY);
+  e.preventDefault();                        // 터치 스크롤·확대·300ms 지연 방지
+  if(sleepMode){ toggleSleep(); return; }   // 수면 중 탭 → 기상
+  const rect = cv.getBoundingClientRect();   // 캔버스가 화면 원점이 아닐 때도 좌표 보정
+  const t = screenToTile(e.clientX - rect.left, e.clientY - rect.top);
   // 게시판 클릭
   if(curMapId==='field' && Math.hypot(t.x-BOARD.x, t.y-BOARD.y) < 1.4){
     if(dist(player, BOARD) < 5) openBoard();
