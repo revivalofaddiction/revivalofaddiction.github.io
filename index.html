@@ -226,6 +226,7 @@
 <div class="panel" id="ench" style="top:90px; left:50%; transform:translateX(-50%); width:368px; max-height:74vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('ench').style.display='none'">✕</span><h3>⚒ 장비 강화</h3><div id="enchBody"></div></div>
 <div class="panel" id="board" style="top:70px; left:50%; transform:translateX(-50%); width:400px; max-height:76vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('board').style.display='none'">✕</span><h3>📜 카르돈 게시판</h3><div id="boardBody"></div></div>
 <div class="panel" id="forge" style="top:70px; left:50%; transform:translateX(-50%); width:400px; max-height:78vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('forge').style.display='none'">✕</span><h3>⚒ 카르돈 대장간 — 장비 합성</h3><div id="forgeBody"></div></div>
+<div class="panel" id="ratep" style="top:170px; left:50%; transform:translateX(-50%); width:340px;"><span class="close" onclick="document.getElementById('ratep').style.display='none'">✕</span><h3 id="ratepTitle">⭐</h3><div id="ratepBody"></div></div>
 <div id="tooltip"></div>
 
 <script>
@@ -2244,7 +2245,43 @@ function gainXp(v){
     addFloat(player.x, player.y-1, 'LEVEL UP!', '#ffd24d');
     flash('#d4b96a'); sfx('level');
   }
+  maybeAskRating();
   refreshUI();
+}
+
+// ── 평점 요청: Lv.20 이상 도달 시 계정당 딱 한 번, 닫으면 끝 ──────────────
+// 보상은 없다 (itch 규정: 대가성 평점 금지). 수면 모드 중에는 방해하지 않고
+// 다음 레벨업 때로 미룬다. 표시하는 순간 플래그를 기록해 두 번 조르지 않는다.
+const RATE_URL = 'https://revivalofaddiction.itch.io/revival-of-addiction/rate';
+const RATE_ASK_LV = 20;
+function maybeAskRating(){
+  try{
+    if(!player || player.lv < RATE_ASK_LV) return;
+    if(sleepMode) return;
+    if(localStorage.getItem('aden_rate_asked')) return;
+    localStorage.setItem('aden_rate_asked', '1');
+    showRatePrompt();
+  }catch(e){}
+}
+function showRatePrompt(){
+  const p = document.getElementById('ratep');
+  document.getElementById('ratepTitle').textContent =
+    LANG==='en' ? '⭐ One small favor' : '⭐ 작은 부탁 하나';
+  document.getElementById('ratepBody').innerHTML = LANG==='en'
+    ? `<div style="line-height:1.6">You've reached Lv.${RATE_ASK_LV} — thank you for playing this far.<br>
+       This is the first game I've ever made. If you're enjoying it, would you leave a rating on itch.io?
+       It helps more than you'd think.</div>
+       <div style="margin-top:12px;text-align:center">
+       <button onclick="window.open(RATE_URL,'_blank');document.getElementById('ratep').style.display='none'">⭐ Rate on itch.io</button>
+       <button onclick="document.getElementById('ratep').style.display='none'" style="margin-left:8px">Close</button></div>`
+    : `<div style="line-height:1.6">Lv.${RATE_ASK_LV} 달성 — 여기까지 플레이해 주셔서 감사합니다.<br>
+       이 게임은 제가 인생에서 처음 만든 게임입니다. 재미있으셨다면 itch.io에 별점 하나만
+       남겨주시겠어요? 생각보다 큰 힘이 됩니다.</div>
+       <div style="margin-top:12px;text-align:center">
+       <button onclick="window.open(RATE_URL,'_blank');document.getElementById('ratep').style.display='none'">⭐ 별점 남기기</button>
+       <button onclick="document.getElementById('ratep').style.display='none'" style="margin-left:8px">닫기</button></div>`;
+  p.style.display = 'block';
+  sfx('level');
 }
 function playerDie(killer){
   player.dead = true; player.deadT = 3;
@@ -2819,7 +2856,7 @@ function migrateSave(p){
 // ===================== 입력 =====================
 // e.code(물리 키) 기준 — 한/영 IME 상태와 무관하게 동작한다
 const MOVE_CODES = {KeyW:'w', KeyA:'a', KeyS:'s', KeyD:'d'};
-const PANEL_IDS = ['inv','chr','clan','shop','morph','move','wh','hbpick','ench','board','forge','daily'];
+const PANEL_IDS = ['inv','chr','clan','shop','morph','move','wh','hbpick','ench','board','forge','daily','ratep'];
 function closeAllPanels(){
   let closed = false;
   for(const id of PANEL_IDS){
