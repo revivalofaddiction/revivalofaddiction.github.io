@@ -176,7 +176,8 @@
     #hud > div:has(> #hotbar) { flex:1 1 100% !important; }   /* 인라인 flex:1을 이겨야 해서 !important */
     #hotbar, #spellbar { flex-wrap:wrap; justify-content:center; max-width:96vw; }
     .barwrap { width:150px; }
-    #log { width:min(360px, 62vw); height:110px; bottom:auto; top:34px; left:6px; font-size:10px; }
+    /* 로그를 하단(HUD 위)으로 — 좌상단 버프 타이머와 겹침 방지. 정확한 위치는 layoutLog()가 재계산. */
+    #log { width:min(320px, 60vw); height:84px; top:auto; bottom:160px; left:6px; font-size:10px; }
     .panel { max-width:96vw; }
   }
 </style>
@@ -271,7 +272,26 @@ const ZOOM = 1.0; // 월드 배율 (1.0 = 기본 시야)
 const TOWN = {x:32, y:32, r:6};
 const cv = document.getElementById('game'), cx = cv.getContext('2d');
 let vignetteG = null;
-function resize(){ cv.width = innerWidth; cv.height = innerHeight; vignetteG = null; }
+function resize(){ cv.width = innerWidth; cv.height = innerHeight; vignetteG = null; layoutLog(); }
+// 모바일에서 채팅 로그를 하단(HUD 바로 위)에 두어 좌측 상단 버프 타이머와 겹치지 않게 한다.
+// HUD가 줄바꿈으로 높이가 변하므로 실제 높이를 재서 위치를 잡는다. (2026-07-20 AJ 폰 제보)
+function layoutLog(){
+  const el = document.getElementById('log');
+  if(!el) return;
+  if(innerWidth <= 700){
+    const hud = document.getElementById('hud');
+    const hh = (hud && hud.offsetParent!==null) ? hud.getBoundingClientRect().height : 150;
+    el.style.top = 'auto';
+    el.style.bottom = (hh + 8) + 'px';
+    el.style.left = '6px';
+    el.style.width = 'min(320px, 60vw)';
+    el.style.height = '84px';
+    el.style.fontSize = '10px';
+  } else {
+    el.style.top=''; el.style.bottom=''; el.style.left='';
+    el.style.width=''; el.style.height=''; el.style.fontSize='';
+  }
+}
 addEventListener('resize', resize); resize();
 const rnd = (a,b)=>a+Math.random()*(b-a);
 const ri = (a,b)=>Math.floor(rnd(a,b+1));
@@ -3553,7 +3573,8 @@ function drawBuffHud(){
   cx.textAlign='left';
 }
 function drawMinimap(){
-  const size = 144, X = cv.width-size-12, Y = 56;
+  const mob = cv.width <= 700;
+  const size = mob ? 104 : 144, X = cv.width-size-(mob?8:12), Y = mob ? 48 : 56;
   cx.globalAlpha = .88;
   cx.drawImage(minimapOf(curMapId), X, Y, size, size);
   cx.globalAlpha = 1;
@@ -5060,6 +5081,7 @@ function startGame(p){
   log('몬스터를 클릭해 사냥하세요. +7 강화의 유혹을 조심하시길...', 'warn');
   log('마을에서는 하단의 [상점]과 [창고] 버튼을 이용할 수 있습니다.', 'sys');
   refreshUI();
+  requestAnimationFrame(layoutLog); // HUD가 보인 뒤 실제 높이로 로그 위치 잡기
   setInterval(()=>saveGame(false), 30000); // 30초 자동저장
 }
 requestAnimationFrame(loop);
