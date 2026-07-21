@@ -116,10 +116,12 @@
   }
   button:hover { background:#54492f; }
   #hud {
-    position:absolute; bottom:0; left:0; right:0; height:92px; z-index:10;
+    position:absolute; bottom:0; left:0; right:0; min-height:92px; z-index:10;
     background:linear-gradient(#1a1610ee,#0c0a08f5); border-top:2px solid #5a4d33;
-    display:flex; align-items:center; padding:0 14px; gap:14px; color:#e8dcc0;
+    display:flex; flex-wrap:wrap; align-items:center; padding:8px 14px; gap:10px; row-gap:6px; color:#e8dcc0;
   }
+  /* 목표(일일) 패널이 위치 지정이 없어 화면 밖에 뜨던 것 수정 — 2026-07-21 Yokai-Idle 제보 */
+  #daily { top:60px; left:50%; transform:translateX(-50%); width:340px; }
   .barwrap { width:220px; }
   .bar { height:14px; background:#221d15; border:1px solid #5a4d33; position:relative; margin-bottom:4px; }
   .bar .fill { height:100%; transition:width .15s; }
@@ -128,7 +130,7 @@
   #xpf { background:linear-gradient(#c9a83d,#7d6516); }
   /* 데스크탑에서만 피/마나 바를 크게 (모바일은 완성돼 있어 base 값 유지) — 2026-07-21 AJ 제보 */
   @media (min-width: 701px){
-    #hud { height:108px; }
+    #hud { min-height:108px; }   /* 고정높이 → 최소높이: 버튼이 넘치면 줄바꿈되게 (가장자리 잘림 수정) */
     .barwrap { width:300px; }
     .bar { height:22px; margin-bottom:5px; }
     .bar .txt { font-size:13px; line-height:22px; }
@@ -1915,9 +1917,9 @@ function sameRef(a,b){
 // 축복받은 주문서는 실패해도 파괴되지 않지만 확률 곡선 자체는 동일하다.
 function enchSuccess(ench, blessed){
   if(ench < 6) return 1;                       // 안전 구간
-  const base = blessed ? 0.5 : 0.33;           // +6→+7 시작 확률(기존 값 유지)
-  const rate = base * Math.pow(0.8, ench - 6); // 한 단계 오를 때마다 ×0.8
-  return Math.max(blessed ? 0.05 : 0.03, rate);// 바닥 확률(무한정 0으로 가지 않게)
+  const base = blessed ? 0.62 : 0.45;          // +6→+7 시작 확률 상향(강화가 너무 안돼서 — AJ)
+  const rate = base * Math.pow(0.85, ench - 6);// 단계당 감소 완화 0.8→0.85
+  return Math.max(blessed ? 0.10 : 0.06, rate);// 바닥 확률도 상향
 }
 function enchTarget(){
   if(!enchState || !enchState.selRef) return null;
@@ -3073,7 +3075,7 @@ function update(dt){
     // 자동 물약(상시) + 자동 사냥
     autoPotCd = Math.max(0, autoPotCd-dt);
     autoPotionTick(dt);
-    if(autoHunt){ autoHuntTick(); autoEquipTick(dt); autoRelocateTick(dt); }
+    if(autoHunt){ autoHuntTick(); autoEquipTick(dt); }  // 사냥터 강제 이동 제거 — 플레이어가 직접 선택(자율). AJ·레딧 피드백
     // WASD (아이소메트릭 축 보정)
     let vx=0, vy=0;
     if(keys['w']){vx-=1;vy-=1;} if(keys['s']){vx+=1;vy+=1;}
