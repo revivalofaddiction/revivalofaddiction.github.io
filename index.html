@@ -2593,6 +2593,17 @@ function renderInv(){
     else h += slotHtml(null, null);
   }
   h += `</div><div id="adenaRow"><span>${LANG==='en'?'Adena':'아데나'}</span><span>${player.adena.toLocaleString()}</span></div>`;
+  // 소지품 확장 — 인벤토리 창에서 바로. (상점에만 있어 안 보인다는 제보 반영)
+  {
+    const en = LANG==='en', full = player.invSlots >= INV_CAP, cost = invExpandCost();
+    h += `<div class="item" style="margin-top:8px;border-bottom:none">
+      <span class="nm">🎒 ${en?`Expand bag (+${INV_STEP})`:`소지품 확장 (+${INV_STEP}칸)`}
+        <span style="color:#8f8266;font-size:11px">${en?`now ${invMax()}/${INV_CAP}`:`현재 ${invMax()}/${INV_CAP}칸`}</span></span>
+      ${full ? `<span style="color:#8f8266;font-size:12px">${en?'Max':'최대 확장됨'}</span>`
+             : `<span style="color:#d4b96a;font-size:12px">${cost.toLocaleString()}</span>
+                <button onclick="buyInvSlot()">${en?'Expand':'확장'}</button>`}
+    </div>`;
+  }
   el.innerHTML = h;
 }
 function unequip(slot){
@@ -2838,7 +2849,7 @@ function buyInvSlot(){
   player.adena -= cost;
   player.invSlots = Math.min(INV_CAP, player.invSlots + INV_STEP);
   log(`🎒 소지품이 ${player.invSlots}칸으로 늘었습니다. (-${cost.toLocaleString()} 아데나)`,'item');
-  sfx('coin'); renderShop(); refreshUI(); saveGame(false);
+  sfx('coin'); renderShop(); renderInv(); refreshUI(); saveGame(false); // 상점/인벤토리 어느 쪽에서 눌러도 갱신
 }
 function buyStoreSlot(){
   if(player.storeSlots >= STORE_CAP){ log('창고를 더 이상 늘릴 수 없습니다.','warn'); return; }
