@@ -704,10 +704,10 @@ const xpNeed = lv => Math.floor(55 * Math.pow(lv, 2.15));
 
 // ===================== 아이템 =====================
 // 소지품은 좁게 시작해서 아데나로 넓혀 나간다. 가득 차면 자동 보급(마을 왕복) 루프가 돈다.
-const INV_BASE = 40;          // 시작 칸수
+const INV_BASE = 42;          // 시작 칸수 (6×7 그리드를 꽉 채움 — masterlined 제보)
 const INV_STEP = 8;           // 확장 1회당 늘어나는 칸
 const INV_CAP  = 160;         // 확장 상한
-function invMax(p){ p = p || player; if(GM_MODE) return 1000; return (p && p.invSlots) || INV_BASE; }
+function invMax(p){ p = p || player; if(GM_MODE) return 1000; const s = (p && p.invSlots) || INV_BASE; return s===40 ? 42 : s; }
 function invExpandCost(p){ p = p || player; const n = Math.max(0, Math.round((((p&&p.invSlots)||INV_BASE) - INV_BASE) / INV_STEP)); return Math.round(2000 * Math.pow(1.35, n) / 100) * 100; }
 let itemId = 1;
 function pickGrade(){ const r=Math.random(); let acc=0; for(const g of GRADES){ acc+=g.p; if(r<acc) return g; } return GRADES[0]; }
@@ -1292,17 +1292,30 @@ function startAutoResupply(reason){
 }
 function resupplySell(){
   if(!player || player.dead){ resupplyState=null; return; }
-  // 영웅(주황)·전설(붉음) 장비와 소모품은 남기고, 그 이하 장비 + 보석 전부 판매
+  // masterlined 알고리즘: ①장착템보다 기본가치가 낮거나 같은 인벤 장비는 판매
+  //                       ②남은 것 중 슬롯별 최고템만 보관, 나머지 판매(등급 무관 — 후반 잉여 영웅템도 정리)
+  //                       ③보석은 기존대로 전부 판매. 장착템보다 나은 건 절대 팔지 않음.
+  const baseVal = it => (it.atk||0) + (it.def||0) + (it.matk||0);
+  const slotOf  = it => it.kind==='weapon' ? 'weapon' : it.slot;
+  const gear = player.inv.filter(it => it.kind==='weapon' || it.kind==='armor');
+  const sell = [], keep = [];
+  for(const it of gear){
+    const eq = player[slotOf(it)];
+    if(eq && baseVal(it) <= baseVal(eq)) sell.push(it);   // 장착보다 약함 → 판매
+    else keep.push(it);                                   // 장착보다 강함(또는 미장착 슬롯) → 후보
+  }
+  const best = {};
+  for(const it of keep){ const s = slotOf(it); if(!best[s] || baseVal(it) > baseVal(best[s])) best[s] = it; }
+  for(const it of keep){ if(best[slotOf(it)] !== it) sell.push(it); }   // 슬롯별 최고만 남기고 판매
+  for(const it of player.inv) if(it.kind==='gem') sell.push(it);
   let n=0, got=0;
-  for(const it of [...player.inv]){
-    const sellable = (it.kind==='weapon'||it.kind==='armor') ? it.grade<3 : it.kind==='gem';
-    if(!sellable) continue;
+  for(const it of sell){
     const qty = it.qty||1;
     got += sellPrice(it)*qty; n += qty;
     removeItem(it.id);
   }
   player.adena += got;
-  if(n) log(`장비·보석 ${n}개 일괄 판매 — +${got.toLocaleString()} 아데나 (영웅 이상은 보관)`,'item');
+  if(n) log(`장비·보석 ${n}개 일괄 판매 — +${got.toLocaleString()} 아데나 (장착보다 나은 것만 보관)`,'item');
   // 팔지 않는 영웅·전설 장비만 남아 자리가 없으면 창고에 맡겨 보급 공간을 확보한다
   let moved = 0;
   if(player.inv.length > invMax() - 12){
@@ -1861,7 +1874,7 @@ function dropLoot(mob){
     const heroCount = mob.lv>=85 ? 3 : mob.lv>=50 ? 2 : 1; // 상위 보스일수록 영웅템 다발
     const items = [];
     for(let i=0;i<heroCount;i++) items.push(Math.random()<.5 ? mkWeapon(5, 3) : mkArmor(5, null, 3));
-    items.push(mkScroll(Math.random()<.6?'weapon':'armor', true));
+    items.push(mkScroll(Math.random()<.3?'weapon':'armor', true));
     items.push(mkScroll('morph', false));
     items.push(mkGem(mob.lv>=50 ? 5 : 4)); // 보석 확정
     const gained = [adena.toLocaleString()+(LANG==='en'?' adena':' 아데나')];
@@ -1885,8 +1898,8 @@ function dropLoot(mob){
   else if(r<.305) item = mkPotion('brave');
   else if(r<.39) item = mkWeapon(t);
   else if(r<.51) item = mkArmor(t);
-  else if(r<.57) item = mkScroll(Math.random()<.6?'weapon':'armor', false);
-  else if(r<.595) item = mkScroll(Math.random()<.6?'weapon':'armor', true);
+  else if(r<.57) item = mkScroll(Math.random()<.15?'weapon':'armor', false);   // 방어구 슬롯 6개 → 방어구 주문서 ~6:1 (masterlined 제보)
+  else if(r<.595) item = mkScroll(Math.random()<.15?'weapon':'armor', true);
   else if(r<.625) item = mkScroll('morph', false);
   else if(r<.665) item = mkScroll('teleport', false);
   else if(r<.69)  item = mkScroll('move', false);
@@ -1930,48 +1943,59 @@ function enchTarget(){
 function selEnch(i){ if(enchCands[i]) enchState.selRef = enchCands[i].ref; renderEnchant(); }
 function renderEnchant(){
   const el = document.getElementById('enchBody');
+  const en = LANG==='en';
   const sc = enchScroll();
-  if(!sc){ el.innerHTML = '<div style="color:#776;padding:6px 2px">주문서를 모두 사용했습니다.</div>'; return; }
+  if(!sc){ el.innerHTML = `<div style="color:#776;padding:6px 2px">${en?'You have used all scrolls.':'주문서를 모두 사용했습니다.'}</div>`; return; }
   const isW = sc.sub==='weapon';
   enchCands = [];
   if(isW){
-    if(player.weapon) enchCands.push({ref:{type:'equip',slot:'weapon'}, tag:'장착 중'});
+    if(player.weapon) enchCands.push({ref:{type:'equip',slot:'weapon'}, tag:en?'Equipped':'장착 중'});
     for(const it of player.inv) if(it.kind==='weapon') enchCands.push({ref:{type:'inv',id:it.id}, tag:''});
   } else {
-    for(const s of ARMOR_SLOTS) if(player[s]) enchCands.push({ref:{type:'equip',slot:s}, tag:SLOTS[s].label+' 장착'});
+    for(const s of ARMOR_SLOTS) if(player[s]) enchCands.push({ref:{type:'equip',slot:s}, tag:SLOTS[s].label+(en?' (equipped)':' 장착')});
     for(const it of player.inv) if(it.kind==='armor') enchCands.push({ref:{type:'inv',id:it.id}, tag:''});
   }
   if(enchState.selRef === undefined) enchState.selRef = enchCands.length ? enchCands[0].ref : null;
   else if(enchState.selRef && !enchCands.some(c=>sameRef(c.ref, enchState.selRef))) enchState.selRef = null;
-  let h = `<div style="margin-bottom:8px;color:#b7ab8d;font-size:12px">${sc.name} <b style="color:#d4b96a">×${sc.qty||1}</b> — 강화할 장비를 선택하세요.</div>`;
-  if(!enchCands.length) h += `<div style="color:#776">강화할 수 있는 ${isW?'무기':'방어구'}가 없습니다.</div>`;
+
+  // 후보 목록(HTML만 먼저 만들어 두고, 배치는 아래에서 — 버튼을 목록 '위'에 고정)
+  let listHtml = '';
   enchCands.forEach((c,i)=>{
     const it = enchItemOf(c); if(!it) return;
-    const A=LANG==='en'?'ATK ':'공', D=LANG==='en'?'DEF ':'방';
-  const stat = it.kind==='weapon' ? `${A}${it.atk+it.ench*2}` : (it.atk!=null ? `${A}+${it.atk+it.ench*2}` : `${D}${it.def+it.ench*2}`);
-    h += `<div class="item srow${sameRef(enchState.selRef, c.ref)?' sel':''}" onclick="selEnch(${i})">
+    const A=en?'ATK ':'공', D=en?'DEF ':'방';
+    const stat = it.kind==='weapon' ? `${A}${it.atk+it.ench*2}` : (it.atk!=null ? `${A}+${it.atk+it.ench*2}` : `${D}${it.def+it.ench*2}`);
+    listHtml += `<div class="item srow${sameRef(enchState.selRef, c.ref)?' sel':''}" onclick="selEnch(${i})">
       <span style="font-size:16px">${iconOf(it)}</span>
       <span class="nm g${it.grade}">${dispName(it)}</span>
       <span style="font-size:11px;color:#8f8266">${stat}${c.tag?' · '+c.tag:''}</span></div>`;
   });
-  if(!enchState.selRef && enchCands.length){
-    h += `<div style="margin-top:8px;color:#ffd24d;font-size:12px">☝ 위 목록에서 강화할 장비를 클릭하세요.</div>`;
-  }
+
+  // 선택 대상 + 강화 버튼 (목록 위에 고정 → 아이템 주워도 버튼이 안 움직임. masterlined 제보)
+  let targetHtml = '';
   const it = enchTarget();
   if(it){
     const safe = it.ench < 6;
     const rate = Math.round(enchSuccess(it.ench, sc.blessed) * 100);
-    h += `<div style="margin-top:10px;padding-top:9px;border-top:1px solid #3a3226;font-size:12px;line-height:1.8">
+    targetHtml = `<div style="margin:8px 0;padding:9px 0;border-top:1px solid #3a3226;border-bottom:1px solid #3a3226;font-size:12px;line-height:1.8">
       <b class="g${it.grade}">${dispName(it)}</b> → <b style="color:#ffd24d">+${it.ench+1}</b>
-      &nbsp;·&nbsp; 성공 확률 <b style="color:${safe?'#9fd08a':'#ffd24d'}">${rate}%</b><br>
-      ${safe ? '<span style="color:#9fd08a">안전 구간 — 실패하지 않습니다.</span>'
-        : sc.blessed ? '<span style="color:#ffd24d">축복받은 주문서 — 실패해도 파괴되지 않습니다.</span>'
-        : '<span style="color:#ff8a7a">⚠ 실패 시 장비가 파괴됩니다!</span>'}
+      &nbsp;·&nbsp; ${en?'Success':'성공 확률'} <b style="color:${safe?'#9fd08a':'#ffd24d'}">${rate}%</b><br>
+      ${safe ? `<span style="color:#9fd08a">${en?'Safe zone — cannot fail.':'안전 구간 — 실패하지 않습니다.'}</span>`
+        : sc.blessed ? `<span style="color:#ffd24d">${en?'Blessed scroll — never destroyed on fail.':'축복받은 주문서 — 실패해도 파괴되지 않습니다.'}</span>`
+        : `<span style="color:#ff8a7a">${en?'⚠ Destroyed on failure!':'⚠ 실패 시 장비가 파괴됩니다!'}</span>`}
       </div>
-      <div style="margin-top:9px;display:flex;gap:8px">
-        <button onclick="doEnchant(1)">강화 1회</button>
-        ${it.ench<6 ? `<button onclick="doEnchant('safe')">안전 연속 강화 (+6까지)</button>` : ''}
+      <div style="margin-top:2px;margin-bottom:8px;display:flex;gap:8px">
+        <button onclick="doEnchant(1)">${en?'Enchant once':'강화 1회'}</button>
+        ${it.ench<6 ? `<button onclick="doEnchant('safe')">${en?'Safe enchant (to +6)':'안전 연속 강화 (+6까지)'}</button>` : ''}
       </div>`;
+  }
+
+  // 조립: 헤더 → (대상+버튼) → 목록 → (선택 안내)
+  let h = `<div style="margin-bottom:8px;color:#b7ab8d;font-size:12px">${sc.name} <b style="color:#d4b96a">×${sc.qty||1}</b> — ${en?'choose gear to enchant.':'강화할 장비를 선택하세요.'}</div>`;
+  if(!enchCands.length) h += `<div style="color:#776">${en?`No ${isW?'weapon':'armor'} to enchant.`:`강화할 수 있는 ${isW?'무기':'방어구'}가 없습니다.`}</div>`;
+  h += targetHtml;
+  h += listHtml;
+  if(!enchState.selRef && enchCands.length){
+    h += `<div style="margin-top:8px;color:#ffd24d;font-size:12px">${en?'☝ Click gear above to enchant it.':'☝ 위 목록에서 강화할 장비를 클릭하세요.'}</div>`;
   }
   el.innerHTML = h;
 }
@@ -4936,7 +4960,7 @@ function applyLangEN(){
     [/^(.+) 판매 — (.+) 아데나 획득\.$/, 'Sold $1 — +$2 adena.'],
     [/^(.+) 구매 완료\..*$/, 'Purchased $1.'],
     [/^소지품이 가득 찼습니다.*$/, 'Inventory full! Returning to town to restock...'],
-    [/^장비·보석 (.+)개 일괄 판매 — \+(.+) 아데나.*$/, 'Bulk-sold $1 items — +$2 adena (Hero+ kept)'],
+    [/^장비·보석 (.+)개 일괄 판매 — \+(.+) 아데나.*$/, 'Bulk-sold $1 items — +$2 adena (kept best per slot)'],
     [/^보급 완료: (.+)$/, 'Restocked: $1'],
     [/^(.+) 사냥터로 복귀! 자동 사냥을 계속합니다\.$/, 'Back to $1! Auto-hunt resumes.'],
     [/^몸이 뒤틀리며\.\.\. (.+)\(으\)로 변신했습니다.*$/, 'Transformed into $1! (10 min)'],
