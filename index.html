@@ -243,6 +243,7 @@
   <button onclick="togglePanel('clan')">혈맹 (G)</button>
   <button id="dailyBtn" onclick="togglePanel('daily')" title="오늘의 목표와 보상">🎯 목표</button>
   <button id="autoBtn" onclick="toggleAuto()">자동사냥</button>
+  <button id="autoSellBtn" onclick="toggleAutoSell()" title="자동사냥 중 가방이 차면 장착보다 못한 장비·보석을 자동 판매할지 선택">💰 자동판매</button>
   <button id="sleepBtn" onclick="toggleSleep()" title="Lv.20 해금 — 화면을 끄고 자동사냥 지속">💤 수면</button>
   <button id="muteBtn" onclick="toggleMute()" title="소리 켜기 / 끄기 (M)">🔊</button>
   <button onclick="redeemCoupon()" title="후원 쿠폰 입력">🎁</button>
@@ -394,6 +395,11 @@ const MOBS = [
   {name:'태초의 수호골렘', kind:'golem',    lv:222, hp:950000, atk:2700, xp:52000000, tier:20, color:'#d8cfa8', r:.85, adena:[900000,1800000]},
   {name:'혼돈의 화신',     kind:'demonlord',lv:238, hp:1100000,atk:3000, xp:80000000, tier:21, color:'#1e1826', r:.9, adena:[1200000,2400000]},
   {name:'타락한 태초신',   kind:'primegod', lv:250, hp:1300000,atk:3300, xp:110000000,tier:21, color:'#4a3a5e', r:.85, adena:[1500000,3000000], ranged:true},
+  // ── 화염의 지옥 전용 (tier 22) — 불·지옥 계열 신규 몬스터 (AJ 아이디어) ──
+  {name:'파이어볼',   kind:'fireball',  lv:228, hp:620000,  atk:2400, xp:40000000,  tier:22, color:'#ff7a1a', r:.52, adena:[900000,1800000]},
+  {name:'이프리트',   kind:'ifrit',     lv:245, hp:1150000, atk:3050, xp:88000000,  tier:22, color:'#e8481a', r:.82, adena:[1300000,2600000]},
+  {name:'케르베로스', kind:'cerberus',  lv:250, hp:1250000, atk:3200, xp:100000000, tier:22, color:'#8a1a10', r:.8,  adena:[1500000,3000000]},
+  {name:'피닉스',     kind:'phoenix',   lv:255, hp:1050000, atk:3350, xp:118000000, tier:22, color:'#ff9a2a', r:.78, adena:[1600000,3200000], ranged:true},
 ];
 // 마을 중심에서의 거리로 난이도 구역을 나눈다.
 // 몬스터는 마을 반경+3(=9) 밖에서만 생성되므로, 첫 구역은 충분히 넓어야
@@ -465,9 +471,9 @@ const MAP_DEFS = {
                      {x:50,y:50,to:'sanctum',tx:6, ty:6, label:'태초의 성역 입구'}]},
   sanctum: {name:'태초의 성역', size:56, theme:'sanctum', seed:20260719, mobCount:32, pools:[20,21],
             portals:[{x:5, y:5, to:'dom',    tx:49,ty:49,label:'폭군의 탑으로'},
-                     {x:50,y:50,to:'endless',tx:6, ty:6, label:'무한의 나락 입구'}]},
-  // 무한의 나락: 끝이 없는 사냥터. 몬스터가 내 레벨 + 심연 깊이에 맞춰 계속 강해지고 보상도 커진다.
-  endless: {name:'무한의 나락', size:56, theme:'dom', seed:20260720, mobCount:36, pools:[20,21], endless:true,
+                     {x:50,y:50,to:'endless',tx:6, ty:6, label:'화염의 지옥 입구'}]},
+  // 화염의 지옥: 끝이 없는 사냥터. 불·지옥 계열 전용 몬스터(tier 22)가 내 레벨 + 지옥 깊이에 맞춰 계속 강해진다.
+  endless: {name:'화염의 지옥', size:56, theme:'dom', seed:20260720, mobCount:36, pools:[22], endless:true,
             portals:[{x:5, y:5, to:'sanctum', tx:49,ty:49, label:'태초의 성역으로'}]},
 };
 let curMapId = 'field', portalCd = 0;
@@ -700,11 +706,14 @@ function newPlayer(cls, name){
     lv:1, xp:0, atkCd:0, adena:250, dir:1, mapId:'field', morph:null, slotId:Date.now(),
     weapon:null, helmet:null, chest:null, belt:null, gloves:null, legs:null, necklace:null,
     clan:null, storage:[], visited:['field'], buffs:{}, hotbar:HOTBAR_DEFAULT.slice(),
+    altar:{atk:0, def:0, hp:0, atkN:0, defN:0, hpN:0}, autoSalvage:false, autoSell:true,
     inv:[ {...mkPotion('red'), qty:10}, {...mkPotion('blue'), qty:2}, {...mkScroll('teleport'), qty:2} ],
     target:null, moveTo:null, dead:false, deadT:0,
   };
 }
-const xpNeed = lv => Math.floor(55 * Math.pow(lv, 2.15));
+// 고레벨 경험치 곡선: 몹 경험치가 레벨보다 훨씬 가파르게(~lv^4.8) 커져서
+// 후반에 한 방에 여러 레벨이 오르는 문제 → 40레벨 이후 요구치를 가속시킨다. (2026-07-22 AJ 제보)
+const xpNeed = lv => Math.floor(55 * Math.pow(lv, 2.15) * (1 + Math.max(0, lv - 40) / 45));
 
 // ===================== 아이템 =====================
 // 소지품은 좁게 시작해서 아데나로 넓혀 나간다. 가득 차면 자동 보급(마을 왕복) 루프가 돈다.
@@ -769,12 +778,85 @@ function mkArmor(tier, slot, gi){
 function getDef(){
   let d = 0;
   for(const s of ARMOR_SLOTS){ const it = player[s]; if(it && it.def!=null) d += it.def + it.ench*2; }
+  if(player.altar) d += player.altar.def || 0;   // 제단 방어 연마 (누적)
   return d;
 }
 function getBonusAtk(){ // 목걸이 + 왕가의 갑주 등 공격력이 붙은 방어구
   let a = 0;
   for(const s of ARMOR_SLOTS){ const it = player[s]; if(it && it.atk!=null) a += it.atk + it.ench*2; }
+  if(player.altar) a += player.altar.atk || 0;   // 제단 공격 연마 (누적)
   return a;
+}
+// ===================== 명예의 제단 (아데나 소비 · 영구 연마) =====================
+// 후반 잉여 아데나의 배출구. 가격·효과 모두 캐릭터 레벨에 비례한다 → 고레벨·부자일수록
+// 한 번에 수천만 아데나부터 시작하고, 그만큼 영구 스탯도 크게 오른다. 상한 없음. (2026-07-22 AJ 제보)
+// 저장 형태: player.altar = {atk,def,hp = 누적 보너스, atkN,defN,hpN = 구매 횟수(가격 상승용)}
+function altarAmount(track, lv){
+  lv = lv || (player ? player.lv : 1);
+  if(track==='atk') return Math.round(4 + lv * 0.4);   // Lv1 +4 … Lv250 +104
+  if(track==='def') return Math.round(3 + lv * 0.25);  // Lv1 +3 … Lv250 +66
+  return Math.round(40 + lv * 4);                       // 생명: Lv1 +44 … Lv250 +1040
+}
+function altarCost(track){
+  const n = (player.altar && player.altar[track+'N']) || 0;
+  const base = Math.max(1000, Math.round(80 * Math.pow(player.lv, 2.4) / 100) * 100); // 레벨 비례 기본가
+  return Math.round(base * Math.pow(1.10, n) / 100) * 100;                            // 살 때마다 ×1.10
+}
+function altarEnsure(){ if(!player.altar || player.altar.atkN==null) player.altar = {atk:0,def:0,hp:0,atkN:0,defN:0,hpN:0}; }
+function altarApply(track){
+  const amt = altarAmount(track);
+  player.altar[track] = (player.altar[track]||0) + amt;
+  player.altar[track+'N'] = (player.altar[track+'N']||0) + 1;
+  if(track==='hp'){ player.hpMax += amt; player.hp += amt; }
+  return amt;
+}
+function altarName(track){ return LANG==='en'
+  ? {atk:'Attack', def:'Defense', hp:'Vitality'}[track]
+  : {atk:'공격', def:'방어', hp:'생명'}[track]; }
+function altarBuy(track){
+  if(!inTown(player)){ log(LANG==='en'?'The Altar is only in town.':'제단은 마을에서만 이용할 수 있습니다.','warn'); return; }
+  altarEnsure();
+  const cost = altarCost(track);
+  if(player.adena < cost){ log(LANG==='en'?'Not enough adena.':'아데나가 부족합니다.','warn'); return; }
+  player.adena -= cost;
+  const amt = altarApply(track);
+  log(`${LANG==='en'?'Altar of Might — ':'명예의 제단 — '}${altarName(track)} +${amt} (-${cost.toLocaleString()} ${LANG==='en'?'adena':'아데나'})`,'item');
+  sfx('coin'); renderShop(); refreshUI(); saveGame(false);
+}
+function altarBuyMax(track){
+  if(!inTown(player)){ log(LANG==='en'?'The Altar is only in town.':'제단은 마을에서만 이용할 수 있습니다.','warn'); return; }
+  altarEnsure();
+  let bought = 0, spent = 0;
+  while(player.adena >= altarCost(track) && bought < 1000){
+    const cost = altarCost(track);
+    player.adena -= cost; spent += cost;
+    altarApply(track);
+    bought++;
+  }
+  if(!bought){ log(LANG==='en'?'Not enough adena.':'아데나가 부족합니다.','warn'); return; }
+  log(`${LANG==='en'?'Altar of Might — ':'명예의 제단 — '}${altarName(track)} ×${bought} (-${spent.toLocaleString()} ${LANG==='en'?'adena':'아데나'})`,'item');
+  sfx('coin'); renderShop(); refreshUI(); saveGame(false);
+}
+function sellAllJunk(){
+  const sell = [];
+  for(const it of player.inv){
+    if(it.kind==='gem'){ sell.push(it); continue; }
+    if((it.kind==='weapon' || it.kind==='armor') && isJunkGear(it)) sell.push(it);
+  }
+  let n = 0, got = 0;
+  for(const it of sell){ const q = it.qty||1; got += sellPrice(it)*q; n += q; removeItem(it.id); }
+  player.adena += got;
+  log(n ? `${n}${LANG==='en'?' junk items sold — +':'개 잡템 판매 — +'}${got.toLocaleString()} ${LANG==='en'?'adena':'아데나'}`
+        : (LANG==='en'?'No junk to sell (nothing weaker than your gear).':'팔 잡템이 없습니다 (장착보다 약한 것만 판매).'), 'item');
+  if(n) sfx('coin');
+  renderShop(); renderInv(); refreshUI(); saveGame(false);
+}
+function toggleAutoSalvage(){
+  player.autoSalvage = !player.autoSalvage;
+  log(player.autoSalvage
+    ? (LANG==='en'?'Auto-salvage ON — junk gear is sold on pickup.':'자동 분해 켜짐 — 잡템은 주울 때 바로 판매됩니다.')
+    : (LANG==='en'?'Auto-salvage OFF.':'자동 분해 꺼짐.'), 'sys');
+  renderShop(); renderInv(); saveGame(false);
 }
 const POTIONS = {
   red:   {name:'체력 회복제',      grade:0, tint:'rgba(220,60,40,.22)',  desc:'체력을 35%+15 회복합니다.'},
@@ -787,6 +869,20 @@ const POTIONS = {
   royal: {name:'군주의 위엄',      grade:2, tint:'rgba(230,180,60,.32)', desc:'5분간 공격력이 20% 강해집니다. (군주 전용)'},
   iron:  {name:'불굴의 영약',      grade:2, tint:'rgba(180,190,210,.32)',desc:'5분간 받는 피해가 25% 줄어듭니다. (기사 전용)'},
 };
+// 물약은 시약병(🧪) 그래픽은 그대로 두고 색깔만 물약별로 다르게 (AJ 제보: 체력 빨강, 신속 초록, 용사 보라, 불굴 핑크…).
+// 🧪 기본색이 초록(hue≈120)이라, hue-rotate 로 각 물약 색을 낸다.
+const POTION_FILTER = {
+  red:    'hue-rotate(240deg) saturate(2.2)',                 // 빨강 (체력)
+  bigred: 'hue-rotate(228deg) saturate(2.6) brightness(.92)', // 진홍 (강력 체력)
+  blue:   'hue-rotate(100deg) saturate(1.9)',                 // 파랑 (마력)
+  haste:  'saturate(1.5)',                                    // 초록 (신속) — 기본색
+  brave:  'hue-rotate(155deg) saturate(2)',                   // 보라 (용사)
+  wafer:  'hue-rotate(55deg) saturate(1.8)',                  // 청록 (바람)
+  sage:   'hue-rotate(135deg) saturate(2)',                   // 남보라 (현자)
+  royal:  'hue-rotate(295deg) saturate(2.1) brightness(1.05)',// 금빛 (군주)
+  iron:   'hue-rotate(198deg) saturate(1.8)',                 // 핑크 (불굴)
+};
+function potionGlyph(sub){ return `<span style="filter:${POTION_FILTER[sub]||''}">🧪</span>`; }
 function mkPotion(t){ return {id:itemId++, kind:'potion', sub:t, name:POTIONS[t].name, grade:POTIONS[t].grade}; }
 const GEM_DEFS = [
   {name:'사파이어',   value:300,  grade:1, min:1, w:50},
@@ -1021,8 +1117,7 @@ function refreshSpellbar(){
   if(!list.length){ el.innerHTML=''; return; }
   el.innerHTML = list.map(s=>{
     const locked = player.lv < s.lv;
-    return `<div class="spslot" id="sp_${s.id}" onclick="castSpell('${s.id}')"
-      title="${s.name} (${s.key}) — MP ${s.mp} · 쿨타임 ${s.cd}초&#10;${s.desc}${locked?'&#10;Lv.'+s.lv+' 필요':''}">
+    return `<div class="spslot" id="sp_${s.id}" onclick="castSpell('${s.id}')">
       <span class="spicon">${s.icon}</span><span class="spkey">${s.key}</span>
       <span class="spcd" id="spcd_${s.id}"></span></div>`;
   }).join('');
@@ -1123,7 +1218,7 @@ function drawBoard(){
 const HOTBAR_DEFAULT = ['p_red','p_blue','sc_teleport_0','p_bigred','p_haste','p_brave','sc_morph_0','sc_move_0'];
 function keyIcon(k){
   if(!k) return '';
-  if(k==='p_red'||k==='p_bigred'||k==='p_blue'||k==='p_haste'||k==='p_brave') return '🧪';
+  if(k && k.startsWith('p_')) return potionGlyph(k.slice(2));
   if(k==='sc_teleport_0') return '🌀';
   if(k==='sc_morph_0') return '🐺';
   if(k==='sc_move_0') return '🗺️';
@@ -1142,8 +1237,7 @@ function renderHotbar(){
   for(let i=0;i<8;i++){
     const k = player.hotbar[i];
     const it = hotbarItem(i);
-    const title = it ? `${it.name} ×${it.qty||1}` : (k ? '소진됨 — 사냥이나 상점에서 보충' : '아이템을 드래그하거나 클릭해서 등록 · 우클릭 해제');
-    h += `<div class="hslot${k&&!it?' dim':''}" data-i="${i}" title="${title}"${k?' draggable="true"':''}>`
+    h += `<div class="hslot${k&&!it?' dim':''}" data-i="${i}"${k?' draggable="true"':''}>`
        + `<span class="num">${i+1}</span>`
        + (it ? `${potionTint(it)}${iconOf(it)}<span class="cnt">${it.qty||1}</span>`
              : (k ? keyIcon(k) : ''))
@@ -1244,6 +1338,26 @@ function updateAutoBtn(){
   b.style.borderColor = autoHunt ? '#ffd24d' : '';
   b.textContent = autoHunt ? '⚔ 자동사냥 중' : '자동사냥';
 }
+// 자동 판매 ON/OFF — 자동사냥 중 가방이 차면 판매할지, 아이템을 지킬지 선택 (AJ 제보)
+function toggleAutoSell(){
+  if(!player) return;
+  player.autoSell = !player.autoSell;
+  const en = LANG==='en';
+  log(player.autoSell
+    ? (en?'Auto-sell ON — junk gear & gems are sold automatically when your bag fills during hunting.':'자동 판매 켜짐 — 사냥 중 가방이 차면 장착보다 못한 장비·보석을 자동으로 팝니다.')
+    : (en?'Auto-sell OFF — nothing is sold automatically. Full bags go to your warehouse; sell manually.':'자동 판매 꺼짐 — 아무것도 자동으로 팔지 않습니다. 가방이 차면 창고로 보관하니 직접 파세요.'),
+    'warn');
+  updateAutoSellBtn(); saveGame(false);
+}
+function updateAutoSellBtn(){
+  const b = document.getElementById('autoSellBtn');
+  if(!b) return;
+  const on = !player || player.autoSell !== false;
+  const en = LANG==='en';
+  b.style.background = on ? '#2a5a34' : '#5a2a2a';
+  b.style.borderColor = on ? '#5ac878' : '#c86a5a';
+  b.textContent = (en?'💰 Auto-sell: ':'💰 자동판매: ') + (on ? (en?'ON':'켜짐') : (en?'OFF':'꺼짐'));
+}
 // 자동 물약: 항상 작동 — HP 50% / MP 25% 이하면 자동으로 마신다
 let potWarnCd = 0;
 function autoPotionTick(dt){
@@ -1299,27 +1413,32 @@ function resupplySell(){
   // masterlined 알고리즘: ①장착템보다 기본가치가 낮거나 같은 인벤 장비는 판매
   //                       ②남은 것 중 슬롯별 최고템만 보관, 나머지 판매(등급 무관 — 후반 잉여 영웅템도 정리)
   //                       ③보석은 기존대로 전부 판매. 장착템보다 나은 건 절대 팔지 않음.
-  const baseVal = it => (it.atk||0) + (it.def||0) + (it.matk||0);
-  const slotOf  = it => it.kind==='weapon' ? 'weapon' : it.slot;
-  const gear = player.inv.filter(it => it.kind==='weapon' || it.kind==='armor');
-  const sell = [], keep = [];
-  for(const it of gear){
-    const eq = player[slotOf(it)];
-    if(eq && baseVal(it) <= baseVal(eq)) sell.push(it);   // 장착보다 약함 → 판매
-    else keep.push(it);                                   // 장착보다 강함(또는 미장착 슬롯) → 후보
+  // 자동 판매 OFF면 아무것도 팔지 않고, 아래 창고 보관만으로 자리를 확보한다 (AJ 제보: 선택권)
+  if(player.autoSell !== false){
+    const baseVal = it => (it.atk||0) + (it.def||0) + (it.matk||0);
+    const slotOf  = it => it.kind==='weapon' ? 'weapon' : it.slot;
+    const gear = player.inv.filter(it => it.kind==='weapon' || it.kind==='armor');
+    const sell = [], keep = [];
+    for(const it of gear){
+      const eq = player[slotOf(it)];
+      if(eq && baseVal(it) <= baseVal(eq)) sell.push(it);   // 장착보다 약함 → 판매
+      else keep.push(it);                                   // 장착보다 강함(또는 미장착 슬롯) → 후보
+    }
+    const best = {};
+    for(const it of keep){ const s = slotOf(it); if(!best[s] || baseVal(it) > baseVal(best[s])) best[s] = it; }
+    for(const it of keep){ if(best[slotOf(it)] !== it) sell.push(it); }   // 슬롯별 최고만 남기고 판매
+    for(const it of player.inv) if(it.kind==='gem') sell.push(it);
+    let n=0, got=0;
+    for(const it of sell){
+      const qty = it.qty||1;
+      got += sellPrice(it)*qty; n += qty;
+      removeItem(it.id);
+    }
+    player.adena += got;
+    if(n) log(`장비·보석 ${n}개 일괄 판매 — +${got.toLocaleString()} 아데나 (장착보다 나은 것만 보관)`,'item');
+  } else {
+    log(LANG==='en'?'Auto-sell off — kept everything, storing overflow in warehouse.':'자동 판매 꺼짐 — 아무것도 팔지 않고 넘치는 건 창고에 보관합니다.','sys');
   }
-  const best = {};
-  for(const it of keep){ const s = slotOf(it); if(!best[s] || baseVal(it) > baseVal(best[s])) best[s] = it; }
-  for(const it of keep){ if(best[slotOf(it)] !== it) sell.push(it); }   // 슬롯별 최고만 남기고 판매
-  for(const it of player.inv) if(it.kind==='gem') sell.push(it);
-  let n=0, got=0;
-  for(const it of sell){
-    const qty = it.qty||1;
-    got += sellPrice(it)*qty; n += qty;
-    removeItem(it.id);
-  }
-  player.adena += got;
-  if(n) log(`장비·보석 ${n}개 일괄 판매 — +${got.toLocaleString()} 아데나 (장착보다 나은 것만 보관)`,'item');
   // 팔지 않는 영웅·전설 장비만 남아 자리가 없으면 창고에 맡겨 보급 공간을 확보한다
   let moved = 0;
   if(player.inv.length > invMax() - 12){
@@ -1692,7 +1811,7 @@ const MOVE_DESTS = [
   {id:'cave',    label:'탐욕의 동굴',    x:6,  y:6},
   {id:'dom',     label:'폭군의 탑',      x:6,  y:6},
   {id:'sanctum', label:'태초의 성역',    x:6,  y:6},
-  {id:'endless', label:'무한의 나락',    x:6,  y:6},
+  {id:'endless', label:'화염의 지옥',    x:6,  y:6},
 ];
 let pendingMoveScroll = null;
 function openMovePanel(scroll){
@@ -1872,6 +1991,14 @@ function unmorph(){
   document.getElementById('morph').style.display = 'none';
   refreshUI();
 }
+// ── 잡템 판정(자동 분해·일괄 판매 공용) : 장착 중인 같은 슬롯 장비보다 약하거나 같으면 잡템 ──
+function baseValOf(it){ return (it.atk||0) + (it.def||0) + (it.matk||0); }
+function slotKeyOf(it){ return it.kind==='weapon' ? 'weapon' : it.slot; }
+function isJunkGear(it){
+  if(!it || (it.kind!=='weapon' && it.kind!=='armor')) return false;
+  const eq = player[slotKeyOf(it)];
+  return !!(eq && baseValOf(it) <= baseValOf(eq));
+}
 function dropLoot(mob){
   if(mob.boss){ // 보스: 확정 보물
     const adena = ri(mob.adena[0], mob.adena[1]);
@@ -1910,10 +2037,13 @@ function dropLoot(mob){
   else if(r<.69)  item = mkScroll('move', false);
   else if(r<.76)  item = mkGem(t);
   if(item){
-    if(addItem(player.inv, item, invMax())) gained.push(item.name);
-    else log('인벤토리가 가득 차 아이템을 잃었습니다: '+item.name,'warn');
+    if(player.autoSell !== false && player.autoSalvage && isJunkGear(item)){
+      const g = sellPrice(item); player.adena += g;
+      gained.push((LANG==='en'?'salvaged +':'분해 +')+g.toLocaleString());
+    } else if(addItem(player.inv, item, invMax())) gained.push(item.name);
+    else log(LANG==='en'?'Inventory full — item lost: '+item.name:'인벤토리가 가득 차 아이템을 잃었습니다: '+item.name,'warn');
   }
-  log('획득: '+gained.join(', '),'item');
+  log((LANG==='en'?'Loot: ':'획득: ')+gained.join(', '),'item');
 }
 
 // ===================== 인챈트 =====================
@@ -1988,9 +2118,10 @@ function renderEnchant(){
         : sc.blessed ? `<span style="color:#ffd24d">${en?'Blessed scroll — never destroyed on fail.':'축복받은 주문서 — 실패해도 파괴되지 않습니다.'}</span>`
         : `<span style="color:#ff8a7a">${en?'⚠ Destroyed on failure!':'⚠ 실패 시 장비가 파괴됩니다!'}</span>`}
       </div>
-      <div style="margin-top:2px;margin-bottom:8px;display:flex;gap:8px">
+      <div style="margin-top:2px;margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap">
         <button onclick="doEnchant(1)">${en?'Enchant once':'강화 1회'}</button>
         ${it.ench<6 ? `<button onclick="doEnchant('safe')">${en?'Safe enchant (to +6)':'안전 연속 강화 (+6까지)'}</button>` : ''}
+        ${sc.blessed ? `<button onclick="doEnchant('bless')" style="color:#ffe08a">${en?`Blessed auto (use all ×${sc.qty||1})`:`축복 연속 강화 (×${sc.qty||1} 소진까지)`}</button>` : ''}
       </div>`;
   }
 
@@ -2005,22 +2136,24 @@ function renderEnchant(){
   el.innerHTML = h;
 }
 function doEnchant(mode){
-  let n = 0;
+  const bulk = (mode==='safe' || mode==='bless');           // 연속 모드(안전·축복)
+  const startIt = enchTarget();
+  const startEnch = startIt ? startIt.ench : 0;
+  let used = 0, succ = 0;
   while(true){
     const sc = enchScroll(), it = enchTarget();
-    if(!sc){ if(n===0) log('주문서가 없습니다.','warn'); break; }
-    if(!it){ log('강화할 장비를 선택하세요.','warn'); break; }
-    if(mode==='safe' && it.ench>=6){ if(n===0) log('이미 +6입니다. 그 위로는 [강화 1회]로 도전하세요.','warn'); break; }
+    if(!sc){ if(used===0) log('주문서가 없습니다.','warn'); break; }
+    if(!it){ if(used===0) log('강화할 장비를 선택하세요.','warn'); break; }
+    if(mode==='safe'  && it.ench>=6){ if(used===0) log('이미 +6입니다. 그 위로는 [강화 1회]나 [축복 연속 강화]로 도전하세요.','warn'); break; }
+    if(mode==='bless' && !sc.blessed){ if(used===0) log('축복받은 주문서에서만 연속 강화할 수 있습니다.','warn'); break; }
     const ref = enchState.selRef;
-    consumeOne(sc);
+    consumeOne(sc); used++;
     const ok = Math.random() < enchSuccess(it.ench, sc.blessed);
     if(ok){
-      it.ench++;
-      log(`빛이 ${dispName(it)} 을(를) 감쌉니다. 강화 성공! (+${it.ench})`,'sys');
-      sfx('ench'); if(it.ench>=7) flash('#d4b96a');
+      it.ench++; succ++;
+      if(!bulk){ log(`빛이 ${dispName(it)} 을(를) 감쌉니다. 강화 성공! (+${it.ench})`,'sys'); sfx('ench'); if(it.ench>=7) flash('#d4b96a'); }
     } else if(sc.blessed){
-      log(`${dispName(it)} 강화 실패... 축복의 가호로 아이템은 무사합니다.`,'warn');
-      sfx('hurt');
+      if(!bulk){ log(`${dispName(it)} 강화 실패... 축복의 가호로 아이템은 무사합니다.`,'warn'); sfx('hurt'); }
     } else {
       log(`${dispName(it)} 이(가) 산산조각 났습니다...!`,'death');
       if(ref.type==='equip') player[ref.slot] = null;
@@ -2030,10 +2163,15 @@ function doEnchant(mode){
       log('강화를 계속하려면 장비를 다시 선택하세요.','warn');
       break;
     }
-    n++;
-    if(mode!=='safe') break;
+    if(!bulk) break;
+    if(used>=999) break;   // 안전장치 (주문서가 유한하므로 정상적으로는 소진 시 종료)
   }
-  if(n>1) log(`안전 강화 완료 — 주문서 ${n}장 사용.`,'sys');
+  if(bulk && used>0){
+    const cur = enchTarget();
+    const endEnch = cur ? cur.ench : startEnch + succ;
+    if(succ>0){ sfx('ench'); if(endEnch>=7) flash('#d4b96a'); }
+    log(`${mode==='bless'?'축복 ':'안전 '}연속 강화 — 주문서 ${used}장 사용, +${startEnch} → +${endEnch} (성공 ${succ}회)`,'sys');
+  }
   refreshUI(); renderEnchant();
 }
 const dispName = it => (it.ench>0?`+${it.ench} `:'')+it.name;
@@ -2143,13 +2281,14 @@ function scaleAbyss(m){
   const targetLv = Math.max(m.lv, (player ? player.lv : 1) + depth*4 + 5);
   const k = targetLv / m.lv;
   m.lv  = Math.round(targetLv);
-  m.hp  = m.hpMax = Math.max(1, Math.round(m.hp  * Math.pow(k, 1.5)));
-  m.atk = Math.max(1, Math.round(m.atk * Math.pow(k, 1.35)));
+  // 공격력은 완만하게(1.1) — 깊이가 깊어져도 한 방 데미지가 폭주하지 않게. 난이도는 체력(사냥 시간)으로.
+  m.hp  = m.hpMax = Math.max(1, Math.round(m.hp  * Math.pow(k, 1.45)));
+  m.atk = Math.max(1, Math.round(m.atk * Math.pow(k, 1.1)));
   m.xp  = Math.max(1, Math.round(m.xp  * Math.pow(k, 1.5)));
   const a0 = m.adena ? m.adena[0] : 1, a1 = m.adena ? m.adena[1] : 1;
   m.adena = [Math.round(a0 * Math.pow(k, 1.4)), Math.round(a1 * Math.pow(k, 1.4))];
-  m.name  = (LANG==='en' ? 'Abyssal ' : '심연의 ') + m.name;
-  m.color = '#9a5cd0';
+  const depthTag = depth > 0 ? (LANG==='en' ? 'Infernal ' : '지옥불 ') : '';
+  m.name  = depthTag + m.name;   // 색은 각 몹 고유 화염 팔레트 유지 (보라 덧칠 제거)
 }
 function spawnMob(){
   for(let tries=0;tries<40;tries++){
@@ -2194,6 +2333,9 @@ function mobAI(m, dt){
         if(player.buffs.iron > 0)    dmg = Math.max(1, Math.round(dmg * .75));
         if(player.buffs.bulwark > 0) dmg = Math.max(1, Math.round(dmg * .4));
       }
+      // 원킬 방지: 한 대에 최대 체력의 25%까지만 — 방치형이라 회피가 없으니 자동물약이 반응할 여지를 준다.
+      // (AJ 제보: 무한의 나락 고심연에서 한 방에 사망) 최소 4대는 버티고, 넘치는 스케일은 여기서 잘린다.
+      dmg = Math.min(dmg, Math.ceil(player.hpMax * 0.25));
       player.hp -= dmg;
       sfx('hurt');
       addFloat(player.x, player.y, '-'+dmg, '#ff7a6a');
@@ -2362,14 +2504,17 @@ function killMob(m){
     if(player.abyssKills % 40 === 0){
       player.abyssDepth = (player.abyssDepth||0) + 1;
       log(LANG==='en'
-        ? 'The abyss deepens — depth '+player.abyssDepth+'. Monsters grow stronger, rewards grow richer.'
-        : '나락이 더 깊어집니다 — 심연 깊이 '+player.abyssDepth+'. 몬스터가 더 강해지고 보상도 커집니다.', 'warn');
+        ? 'The inferno rages hotter — depth '+player.abyssDepth+'. Monsters grow stronger, rewards grow richer.'
+        : '화염이 더 거세집니다 — 지옥 깊이 '+player.abyssDepth+'. 몬스터가 더 강해지고 보상도 커집니다.', 'warn');
     }
   }
   mobs = mobs.filter(o=>o!==m);
   if(player.target===m) player.target = null;
 }
 function gainXp(v){
+  // 한 번의 처치로 얻는 경험치를 현재 레벨 요구치의 34%로 제한 — 고레벨 몹 한 마리에
+  // 여러 레벨이 한꺼번에 오르던 폭주를 막는다. (최소 3킬/레벨 보장, 심연에도 동일 적용)
+  v = Math.min(v, Math.ceil(xpNeed(player.lv) * 0.34));
   if(sleepMode && sleepStats){ sleepStats.xp += v; sleepStats.kills++; }
   dailyAdd('xp', v);
   player.xp += v;
@@ -2600,6 +2745,7 @@ function refreshHud(){
 function refreshUI(){
   if(!player) return;
   refreshHud();
+  updateAutoSellBtn();
   renderHotbar();
   refreshSpellbar();
   if(document.getElementById('inv').style.display==='block') renderInv();
@@ -2630,7 +2776,7 @@ let invSlots = {};
 function iconOf(it){
   if(it.kind==='weapon') return '🗡️';
   if(it.kind==='armor')  return (SLOTS[it.slot||'chest']||SLOTS.chest).icon;
-  if(it.kind==='potion') return '🧪';
+  if(it.kind==='potion') return potionGlyph(it.sub);
   if(it.kind==='gem') return '💎';
   if(it.sub==='morph') return '🐺';
   if(it.sub==='teleport') return '🌀';
@@ -2757,6 +2903,43 @@ function moveTip(ev){
   tipEl.style.top  = clamp(ev.clientY+12, 4, innerHeight-hh-6)+'px';
 }
 function hideTip(){ tipEl.style.display='none'; }
+// ── 핫바·스킬바 툴팁: 인벤토리와 같은 커스텀 툴팁을 재사용 (네이티브 title은 느리고 안 뜨는 경우가 있어 교체) ──
+function spellTipHtml(s){
+  const en = LANG==='en';
+  const locked = player && player.lv < s.lv;
+  const nm  = `<div class="tnm" style="color:#b6a4ff">${s.icon} ${s.name} <span style="color:#7d7460">(${s.key})</span></div>`;
+  const st  = `<div class="tstat">MP ${s.mp} · ${en?'Cooldown ':'쿨타임 '}${s.cd}${en?'s':'초'}</div>`;
+  const ds  = `<div class="tdesc">${s.desc}</div>`;
+  const lk  = locked ? `<div class="tdesc" style="color:#ff8a7a">${en?'Requires Lv.'+s.lv:'Lv.'+s.lv+' 필요'}</div>` : '';
+  return nm+st+ds+lk;
+}
+function showSpellTip(id, ev){
+  const s = SPELLS.find(x=>x.id===id); if(!s){ hideTip(); return; }
+  tipEl.innerHTML = spellTipHtml(s); tipEl.style.display='block'; moveTip(ev);
+}
+function showHotbarTip(i, ev){
+  if(!player) return;
+  const it = hotbarItem(i);
+  if(it){ showTip({item:it, type:'hotbar', count: it.qty||1}, ev); return; }
+  const en = LANG==='en', k = player.hotbar[i];
+  const msg = k ? (en?'Used up — restock by hunting or at the shop':'소진됨 — 사냥이나 상점에서 보충')
+                : (en?'Drag or click an item to assign · Right-click to clear':'아이템을 드래그하거나 클릭해 등록 · 우클릭 해제');
+  tipEl.innerHTML = `<div class="tdesc">${msg}</div>`; tipEl.style.display='block'; moveTip(ev);
+}
+(function(){
+  const hb = document.getElementById('hotbar');
+  if(hb){
+    hb.addEventListener('mouseover', ev=>{ const sl=ev.target.closest('.hslot'); if(sl) showHotbarTip(+sl.dataset.i, ev); });
+    hb.addEventListener('mousemove', moveTip);
+    hb.addEventListener('mouseleave', hideTip);
+  }
+  const sb = document.getElementById('spellbar');
+  if(sb){
+    sb.addEventListener('mouseover', ev=>{ const sl=ev.target.closest('.spslot'); if(sl && sl.id.startsWith('sp_')) showSpellTip(sl.id.slice(3), ev); });
+    sb.addEventListener('mousemove', moveTip);
+    sb.addEventListener('mouseleave', hideTip);
+  }
+})();
 // 슬롯 이벤트 (위임)
 (function(){
   const list = document.getElementById('invList');
@@ -2871,10 +3054,12 @@ function openShop(){
 function setShopTab(t){ shopTab = t; renderShop(); }
 function renderShop(){
   const el = document.getElementById('shopBody');
+  const EN = LANG==='en';
   let h = `<div class="stabs">
-    <button class="${shopTab==='buy'?'on':''}" onclick="setShopTab('buy')">구매</button>
-    <button class="${shopTab==='sell'?'on':''}" onclick="setShopTab('sell')">판매</button>
-    <span style="flex:1"></span><span style="color:#d4b96a;font-size:12px">${player.adena.toLocaleString()} 아데나</span>
+    <button class="${shopTab==='buy'?'on':''}" onclick="setShopTab('buy')">${EN?'Buy':'구매'}</button>
+    <button class="${shopTab==='sell'?'on':''}" onclick="setShopTab('sell')">${EN?'Sell':'판매'}</button>
+    <button class="${shopTab==='altar'?'on':''}" onclick="setShopTab('altar')">${EN?'Altar':'제단'}</button>
+    <span style="flex:1"></span><span style="color:#d4b96a;font-size:12px">${player.adena.toLocaleString()} ${EN?'adena':'아데나'}</span>
   </div>`;
   if(shopTab==='buy'){
     h += SHOP.map((s,i)=>
@@ -2891,8 +3076,14 @@ function renderShop(){
       <span style="color:#8f8266;font-size:11px">${en?`now ${invMax()}${full?' (max)':' / max '+INV_CAP}`:`현재 ${invMax()}칸${full?' (최대)':' / 최대 '+INV_CAP+'칸'}`}</span>
       <button onclick="buyInvSlot()" ${full?'disabled':''}>${en?'Expand':'확장'}</button></div>
       <div style="color:#8f8266;font-size:11px;margin-top:6px">${en?'Each expansion costs more. When your bag fills up you automatically return to town to sort it out.':'확장할수록 값이 오릅니다. 소지품이 가득 차면 자동으로 마을에 돌아와 정리합니다.'}</div>`;
-  } else {
-    if(!player.inv.length) h += '<div style="color:#776;padding:8px 2px">팔 물건이 없습니다.</div>';
+  } else if(shopTab==='sell'){
+    // 잡템 정리 도구: 장착보다 약한 장비 + 보석을 한 번에 판매, 자동 분해 토글
+    h += `<div class="item" style="border-bottom:1px solid #2a2a38;padding-bottom:8px">
+      <button onclick="sellAllJunk()">${EN?'Sell all junk':'잡템 일괄 판매'}</button>
+      <span style="flex:1"></span>
+      <button onclick="toggleAutoSalvage()" style="font-size:11px">${EN?'Auto-salvage: ':'자동 분해: '}<b style="color:${player.autoSalvage?'#5ac878':'#8f8266'}">${player.autoSalvage?(EN?'ON':'켜짐'):(EN?'OFF':'꺼짐')}</b></button></div>
+      <div style="color:#8f8266;font-size:11px;margin:4px 0 8px">${EN?'“Junk” = weapons/armor no better than what you have equipped, plus gems. Auto-salvage sells junk the moment it drops.':'“잡템” = 지금 장착한 것보다 못한 무기·방어구와 보석. 자동 분해를 켜면 잡템을 주울 때 바로 판매합니다.'}</div>`;
+    if(!player.inv.length) h += `<div style="color:#776;padding:8px 2px">${EN?'Nothing to sell.':'팔 물건이 없습니다.'}</div>`;
     for(const it of player.inv){
       const n = it.qty||1;
       if(stackKey(it) && n>1){
@@ -2911,7 +3102,25 @@ function renderShop(){
           <span style="color:#d4b96a">${sellPrice(it).toLocaleString()}</span></div>`;
       }
     }
-    h += '<div style="color:#8f8266;font-size:11px;margin-top:8px">아이템을 클릭하면 판매됩니다. 겹치는 아이템은 수량을 입력해 대량 판매할 수 있습니다. 희귀 등급 이상과 +5 이상 강화품은 확인 창이 뜹니다.</div>';
+    h += `<div style="color:#8f8266;font-size:11px;margin-top:8px">${EN?'Click an item to sell it. Stacked items can be sold in bulk. Rare+ grade and +5 or higher gear ask for confirmation.':'아이템을 클릭하면 판매됩니다. 겹치는 아이템은 수량을 입력해 대량 판매할 수 있습니다. 희귀 등급 이상과 +5 이상 강화품은 확인 창이 뜹니다.'}</div>`;
+  } else if(shopTab==='altar'){
+    // 명예의 제단 — 아데나로 사는 영구 능력치 (가격·효과 모두 레벨 비례, 상한 없음)
+    altarEnsure();
+    h += `<div class="invsec" style="margin-top:6px">🏛️ ${EN?'Altar of Might':'명예의 제단'}</div>
+      <div style="color:#8f8266;font-size:11px;margin:2px 0 8px">${EN?'Pour surplus adena into permanent power. Price and reward both scale with your level — no cap.':'남는 아데나를 영구적인 힘으로. 가격도 효과도 레벨에 비례하고, 상한이 없습니다.'}</div>`;
+    const rows = [
+      {t:'atk', name:EN?'Attack Forging':'공격 연마',  unit:EN?'ATK':'공격력'},
+      {t:'def', name:EN?'Defense Forging':'방어 연마', unit:EN?'DEF':'방어력'},
+      {t:'hp',  name:EN?'Vitality Forging':'생명 연마',unit:EN?'Max HP':'최대 체력'},
+    ];
+    for(const r of rows){
+      const owned = player.altar[r.t]||0, next = altarAmount(r.t), cost = altarCost(r.t), buys = player.altar[r.t+'N']||0;
+      h += `<div class="item"><span class="nm">${r.name} <b style="color:#d4b96a">Lv.${buys}</b><br>
+        <span style="color:#8f8266;font-size:11px">${EN?'next ':'다음 '}+${next.toLocaleString()} ${r.unit} · ${EN?'total ':'누적 '}+${owned.toLocaleString()}</span></span>
+        <span style="color:#d4b96a;font-size:12px">${cost.toLocaleString()}</span>
+        <button onclick="altarBuy('${r.t}')">${EN?'Forge':'연마'}</button>
+        <button onclick="altarBuyMax('${r.t}')" style="font-size:11px">${EN?'Max':'최대'}</button></div>`;
+    }
   }
   el.innerHTML = h;
 }
@@ -3238,7 +3447,7 @@ function update(dt){
   camY = (player.x+player.y)*(TILE_H/2);
   const _endless = MAP_DEFS[curMapId].endless;
   const zn = MAP_DEFS[curMapId].name + (curMapId==='field' ? ' — '+zoneOf(player).name : '')
-           + (_endless ? (LANG==='en' ? ' · Depth '+(player.abyssDepth||0) : ' · 심연 깊이 '+(player.abyssDepth||0)) : '');
+           + (_endless ? (LANG==='en' ? ' · Depth '+(player.abyssDepth||0) : ' · 지옥 깊이 '+(player.abyssDepth||0)) : '');
   document.getElementById('zone').textContent = player.dead ? '' : zn + (player.dead || _endless ? '' : zoneAdvice());
   dailyTick(dt);
 }
@@ -3797,6 +4006,10 @@ function drawMobSprite(kind, f, wob, m){
     case 'emperor':   drawEmperor(0,0,f,wob,m); break;
     case 'valkyrie':  drawValkyrie(0,0,f,wob,m); break;
     case 'primegod':  drawPrimegod(0,0,f,wob,m); break;
+    case 'fireball':  drawFireball(0,0,f,wob,m); break;
+    case 'ifrit':     drawIfrit(0,0,f,wob,m); break;
+    case 'cerberus':  drawCerberus(0,0,f,wob,m); break;
+    case 'phoenix':   drawPhoenix(0,0,f,m); break;
   }
 }
 function drawAngel(X,Y,f,wob,m){
@@ -3894,6 +4107,77 @@ function drawBalrog(X,Y,f,wob,m){
   cx.stroke();
   cx.globalAlpha=.4+sprAtk*.3; cx.lineWidth=6.5+sprAtk*3; cx.stroke(); cx.globalAlpha=1;
   if(sprAtk>0){ cx.globalAlpha=sprAtk*.6; E(X+f*(31+sprAtk*10), Y-11+crack*.4, 6, 6, '#ffd24d'); cx.globalAlpha=1; } // 채찍 끝 폭발
+}
+// ── 화염의 지옥 전용 몬스터 (AJ 아이디어: 파이어볼·이프리트·케르베로스·피닉스) ──
+function drawFireball(X,Y,f,wob,m){
+  const ph=(m&&m.ph)||0, fl=Math.sin(animT*10+ph);
+  const yb=Y-16+Math.sin(animT*3+ph)*2;                       // 살짝 부유
+  cx.globalAlpha=.32+Math.abs(fl)*.1; E(X,yb,13,15,'#ff5a10'); cx.globalAlpha=1; // 후광
+  for(let i=-1;i<=1;i++){                                     // 위로 솟는 불꽃 혓바닥
+    const hx=X+i*5, tip=yb-15-Math.abs(i)*2-(2+fl*3);
+    P([[hx-3,yb-3],[hx+3,yb-3],[hx,tip]],'#ff8a1a');
+    P([[hx-1.6,yb-3],[hx+1.6,yb-3],[hx,tip+3]],'#ffd24d');
+  }
+  E(X,yb,8.5,9,'#ff7a14'); E(X,yb,6,6.5,'#ffb03a'); E(X,yb-.5,3.4,3.8,'#ffe8a0'); // 핵심
+  E(X-f*2.4,yb-1,1.4,1.9,'#3a0a02'); E(X+f*2.4,yb-1,1.4,1.9,'#3a0a02');           // 성난 눈
+  E(X-f*2.4,yb-1.5,.6,.8,'#ffffff');
+  cx.globalAlpha=.6; E(X-4,yb+9+fl*2,1.3,2.1,'#ff9a2a'); E(X+3,yb+11-fl*2,1.1,1.9,'#ffce5a'); cx.globalAlpha=1; // 불티
+  if(sprAtk>0){ cx.globalAlpha=sprAtk*.5; E(X,yb,16,17,'#ffd24d'); cx.globalAlpha=1; }
+}
+function drawIfrit(X,Y,f,wob,m){
+  const ph=(m&&m.ph)||0, fl=Math.sin(animT*7+ph);
+  cx.globalAlpha=.5; P([[X-9,Y-16],[X+9,Y-16],[X+5,Y+2],[X-5,Y+2]],'#8a1c08'); cx.globalAlpha=1; // 하반신 화염
+  for(let i=-1;i<=1;i++){ const bx=X+i*6; P([[bx-3,Y-14],[bx+3,Y-14],[bx,Y+3+fl*2]],'#e8481a'); }
+  E(X,Y-26,12.5,12,'#c0341a');                                // 몸통
+  E(X-f*3,Y-30,5,4,'#e0562a'); E(X+f*4,Y-30,5,4,'#e0562a');   // 가슴 근육
+  L(X-5,Y-32,X-1,Y-18,1.6,'#ffce4a'); L(X+3,Y-30,X+6,Y-19,1.4,'#ffa02a'); // 용암 균열
+  cx.globalAlpha=.5; E(X-f*10,Y-30,4,5,'#ff7a1a'); E(X+f*11,Y-30,4,5,'#ff7a1a'); cx.globalAlpha=1; // 어깨불
+  L(X-f*10,Y-30,X-f*14,Y-20,4.5,'#c0341a');                   // 뒷팔
+  E(X,Y-42,7,6.5,'#d03e1e');                                  // 머리
+  P([[X-5,Y-46],[X-12,Y-58],[X-2,Y-47]],'#5a1408'); P([[X+5,Y-46],[X+12,Y-58],[X+2,Y-47]],'#5a1408'); // 뿔
+  cx.globalAlpha=.6; P([[X-6,Y-46],[X,Y-60-fl*3],[X+6,Y-46]],'#ff8a1a'); cx.globalAlpha=1; // 머리 화염
+  E(X-f*2.6,Y-43,1.7,1.5,'#fff0a0'); E(X+f*2.6,Y-43,1.7,1.5,'#fff0a0'); // 눈
+  L(X-f*2,Y-39,X+f*2,Y-39,1,'#3a0a02');                       // 입
+  const hx=X+f*12, hy=Y-26; L(X+f*9,Y-28,hx,hy,4.5,'#c0341a');// 앞팔
+  const bx=hx+f*(3+sprAtk*12), by=hy-2-sprAtk*4;              // 화염구 (공격 시 내던짐)
+  cx.globalAlpha=.5; E(bx,by,6+sprAtk*3,6+sprAtk*3,'#ff6a1a'); cx.globalAlpha=1; E(bx,by,3.5,3.5,'#ffd24d');
+}
+function drawCerberus(X,Y,f,wob,m){
+  const ph=(m&&m.ph)||0, fl=Math.sin(animT*8+ph);
+  L(X-8,Y-9,X-9-wob*.4,Y,4,'#2a0e0a'); L(X-3,Y-9,X-3,Y,4,'#341410'); // 다리
+  L(X+3,Y-9,X+3+wob*.4,Y,4,'#341410'); L(X+8,Y-9,X+9,Y,4,'#2a0e0a');
+  cx.strokeStyle='#8a1a10'; cx.lineWidth=3.5; cx.lineCap='round';    // 꼬리
+  cx.beginPath(); cx.moveTo(X-f*13,Y-15); cx.quadraticCurveTo(X-f*20,Y-20,X-f*19,Y-28+fl*3); cx.stroke();
+  cx.globalAlpha=.5; L(X-f*19,Y-28+fl*3,X-f*20,Y-34+fl*2,3,'#ff7a1a'); cx.globalAlpha=1;
+  E(X,Y-15,15,9,'#3a1410'); E(X-f*4,Y-16,8,6,'#4a1a14');            // 몸통
+  cx.globalAlpha=.5; for(let i=-2;i<=2;i++){ P([[X+i*4-2,Y-20],[X+i*4+2,Y-20],[X+i*4,Y-27-Math.abs(fl)*3]],'#ff6a1a'); } cx.globalAlpha=1; // 화염 갈기
+  L(X+f*8,Y-18,X+f*12,Y-24,7,'#3a1410');                           // 목
+  const heads=[[f*14,-30,0],[f*10,-23,-4.5],[f*10,-23,4.5]];        // 가운데 + 양옆 머리
+  for(const [hxo,hyo,sx] of heads){
+    const hx=X+hxo+sx, hy=Y+hyo;
+    E(hx,hy,5,4.6,'#4a1a12'); E(hx+f*3.4,hy+1,3,2.3,'#3a1410');     // 두상+주둥이
+    E(hx+f*1.5,hy-1.2,1.4,1.4,'#ffce2a'); E(hx+f*1.5,hy-1.5,.5,.6,'#fff'); // 눈
+    P([[hx+f*2,hy+2],[hx+f*6,hy+1.4],[hx+f*5,hy+3.4]],'#1a0805');   // 벌린 입
+  }
+  if(sprAtk>0){ cx.globalAlpha=sprAtk*.55; P([[X+f*16,Y-31],[X+f*(30+sprAtk*10),Y-34],[X+f*(30+sprAtk*10),Y-26],[X+f*16,Y-27]],'#ff7a1a'); cx.globalAlpha=1;
+    cx.globalAlpha=sprAtk*.8; E(X+f*(30+sprAtk*10),Y-30,4,3,'#ffd24d'); cx.globalAlpha=1; } // 화염 숨결
+}
+function drawPhoenix(X,Y,f,m){
+  const ph=(m&&m.ph)||0, flap=Math.sin(animT*5+ph)*6, fl=Math.sin(animT*9+ph);
+  const yb=Y-24+Math.sin(animT*2.5+ph)*2;                          // 부유
+  cx.globalAlpha=.3; E(X,yb,15,17,'#ff5a10'); cx.globalAlpha=1;    // 후광
+  P([[X,yb],[X-f*26,yb-14-flap],[X-f*18,yb+6]],'#c0341a');         // 왼 날개
+  cx.globalAlpha=.5; P([[X,yb],[X-f*30,yb-16-flap],[X-f*18,yb+8]],'#ff7a1a'); cx.globalAlpha=1;
+  P([[X,yb],[X+f*26,yb-14+flap],[X+f*18,yb+6]],'#e0562a');         // 오른 날개
+  cx.globalAlpha=.5; P([[X,yb],[X+f*30,yb-16+flap],[X+f*18,yb+8]],'#ff9a2a'); cx.globalAlpha=1;
+  for(let i=-1;i<=1;i++){ cx.strokeStyle=i===0?'#ffce4a':'#ff7a1a'; cx.lineWidth=2.5; cx.lineCap='round'; // 긴 꼬리깃
+    cx.beginPath(); cx.moveTo(X,yb+4); cx.quadraticCurveTo(X-f*4+i*4,yb+16,X-f*8+i*6,yb+26+fl*3); cx.stroke(); }
+  E(X,yb,7,9,'#e8481a'); E(X,yb-1,4.5,6,'#ff8a2a');               // 몸통
+  E(X+f*3,yb-9,4,4,'#ff7a1a');                                    // 머리
+  P([[X+f*2,yb-12],[X+f*1,yb-19-fl*2],[X+f*5,yb-13]],'#ffce4a');  // 볏 화염
+  P([[X+f*6,yb-9],[X+f*11,yb-8],[X+f*6,yb-6]],'#ffd24d');         // 부리
+  E(X+f*4,yb-9.5,1.1,1.1,'#3a0a02');                              // 눈
+  if(sprAtk>0){ cx.globalAlpha=sprAtk*.7; E(X+f*(12+sprAtk*10),yb-8,5,4,'#ffd24d'); cx.globalAlpha=1; } // 발사
 }
 // 데스나이트 색상 팔레트 (상위 변신은 색으로 위엄을 드러낸다)
 const DK_PALETTES = {
@@ -4763,7 +5047,7 @@ const NAME_EN = {
   '카르돈 필드':'Kardon Fields','잿빛 첨탑 던전':'Ashen Spire Dungeon','용의 둥지':'Dragon Lair',
   '얼어붙은 심연':'Frozen Abyss','몰락한 마탑':'Fallen Spire','이그니스의 화산':'Ignis Volcano',
   '움브라':'Umbra','탐욕의 동굴':'Cave of Greed','폭군의 탑':"Tyrant's Tower",'태초의 성역':'Primeval Sanctum',
-  '무한의 나락':'The Endless Abyss',
+  '화염의 지옥':'Inferno','파이어볼':'Fireball','이프리트':'Ifrit','케르베로스':'Cerberus','피닉스':'Phoenix',
   '속삭이는 섬 마을':'Whispering Isle Village','속삭이는 섬':'Whispering Isle','바람맞이 평원':'Windward Plains',
   '오크 요새':'Orc Fortress','용의 계곡 입구':'Dragon Valley Gate','용의 계곡':'Dragon Valley',
   // 몬스터/보스
@@ -5190,6 +5474,9 @@ function startGame(p){
   map = getMap(curMapId); MAP = MAP_DEFS[curMapId].size;
   if(p.morph && typeof p.morph.t !== 'number') p.morph = null;
   // 소지품/창고 칸수 — 구버전 세이브는 지금 들고 있는 만큼을 인정해 준다(아이템 소실 방지)
+  if(!p.altar || p.altar.atkN==null) p.altar = {atk:0, def:0, hp:0, atkN:0, defN:0, hpN:0};
+  if(p.autoSalvage == null) p.autoSalvage = false;
+  if(p.autoSell == null) p.autoSell = true;
   if(p.invSlots == null)   p.invSlots   = Math.max(INV_BASE,   Math.ceil(p.inv.length / INV_STEP) * INV_STEP);
   if(p.storeSlots == null) p.storeSlots = Math.max(STORE_BASE, Math.ceil((p.storage||[]).length / STORE_STEP) * STORE_STEP);
   // 개발용 테스트 지급 — ?gm=1 로 접속했을 때만 (일반 플레이어에게는 지급되지 않음)
