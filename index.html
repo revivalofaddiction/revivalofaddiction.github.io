@@ -2996,8 +2996,9 @@ if(LANG==='en'){
 }
 const GRADE_HEX = ['#e8dcc0','#6aa7ff','#c48aff','#ffa53d','#ff5a5a'];
 let invSlots = {};
+function weaponIcon(cls){ return cls==='elf' ? '🏹' : cls==='wizard' ? '🪄' : '🗡️'; }
 function iconOf(it){
-  if(it.kind==='weapon') return '🗡️';
+  if(it.kind==='weapon') return weaponIcon(it.cls);
   if(it.kind==='armor')  return (SLOTS[it.slot||'chest']||SLOTS.chest).icon;
   if(it.kind==='potion') return potionGlyph(it.sub);
   if(it.kind==='egg') return '🥚';
@@ -3032,9 +3033,10 @@ function renderInv(){
   for(const s of Object.keys(SLOTS)){
     const it = player[s], key = 'eq_'+s, meta = SLOTS[s];
     if(it) invSlots[key] = {type:'equip', slot:s, item:it};
+    const phIcon = s==='weapon' ? weaponIcon(player.cls) : meta.icon;   // 빈 무기칸도 직업 무기 모양으로
     const slotBox = it
       ? slotHtml(key, it, 1, true)
-      : `<div class="slot empty eq"><span class="ph">${meta.icon}</span></div>`;
+      : `<div class="slot empty eq"><span class="ph">${phIcon}</span></div>`;
     h += `<div class="dslot" style="grid-area:${s}">${slotBox}<div class="lbl">${meta.label}</div></div>`;
   }
   h += '</div>';
