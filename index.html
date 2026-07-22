@@ -708,7 +708,7 @@ function newPlayer(cls, name){
     lv:1, xp:0, atkCd:0, adena:250, dir:1, mapId:'field', morph:null, slotId:Date.now(),
     weapon:null, helmet:null, chest:null, belt:null, gloves:null, legs:null, necklace:null,
     clan:null, storage:[], visited:['field'], buffs:{}, hotbar:HOTBAR_DEFAULT.slice(),
-    altar:{atk:0, def:0, hp:0, atkN:0, defN:0, hpN:0}, autoSalvage:false, autoSell:true, pet:null,
+    altar:{atk:0, def:0, hp:0, atkN:0, defN:0, hpN:0}, autoSalvage:false, autoSell:true, pet:null, pets:[],
     inv:[ {...mkPotion('red'), qty:10}, {...mkPotion('blue'), qty:2}, {...mkScroll('teleport'), qty:2} ],
     target:null, moveTo:null, dead:false, deadT:0,
   };
@@ -2011,6 +2011,7 @@ function dropLoot(mob){
     items.push(mkScroll(Math.random()<.3?'weapon':'armor', true));
     items.push(mkScroll('morph', false));
     items.push(mkGem(mob.lv>=50 ? 5 : 4)); // 보석 확정
+    if(Math.random() < 0.4) items.push(mkEgg());   // 40% 확률로 펫 알 드랍 (AJ)
     const gained = [adena.toLocaleString()+(LANG==='en'?' adena':' 아데나')];
     for(const it of items){
       if(addItem(player.inv, it, invMax())) gained.push(it.name);
@@ -2210,6 +2211,7 @@ function mergeStacks(arr){
 function useItem(id){
   const it = player.inv.find(i=>i.id===id);
   if(!it) return;
+  if(it.kind==='egg'){ consumeOne(it); hatchFromEgg(); renderInv(); return; }
   if(it.kind==='potion'){
     if(it.sub==='red'){ const h=Math.round(player.hpMax*.35)+15; player.hp=Math.min(player.hpMax,player.hp+h); log(`체력 회복제 사용 (+${h})`,'sys'); }
     else if(it.sub==='bigred'){ const h=Math.round(player.hpMax*.7)+30; player.hp=Math.min(player.hpMax,player.hp+h); log(`강력 체력 회복제 사용 (+${h})`,'sys'); }
@@ -2589,17 +2591,54 @@ function refreshPetBtn(){
   b.textContent = (player && player.pet) ? `🐾 ${en?'Pet':'펫'} Lv.${player.pet.lv}` : `🐾 ${en?'Pet':'펫'}`;
 }
 const PET_HATCH_COST = 30000;
+// 새 펫은 활성 펫이 없으면 바로 데리고 나가고, 있으면 보관함(player.pets)에 넣는다 — 패널에서 교체.
+function addPet(pet){
+  if(!player.pets) player.pets = [];
+  if(!player.pet){ pet.active = true; pet.x = player.x; pet.y = player.y; player.pet = pet; }
+  else player.pets.push(pet);
+}
 function hatchPet(type){
-  if(player.pet){ log(LANG==='en'?'You already have a pet.':'이미 펫이 있습니다.','warn'); return; }
   if(!PET_TYPES[type]) return;
   if(player.adena < PET_HATCH_COST){ log(LANG==='en'?'Not enough adena.':`아데나가 부족합니다. (${PET_HATCH_COST.toLocaleString()} 필요)`,'warn'); return; }
   player.adena -= PET_HATCH_COST;
-  player.pet = newPet(type);
-  player.pet.x = player.x; player.pet.y = player.y;
-  log((LANG==='en'?'🥚 A ':'🥚 알에서 ')+petTypeName(type)+(LANG==='en'?' hatched — it will fight by your side!':'이(가) 태어났습니다! 함께 사냥을 떠나세요.'), 'warn');
+  const wasEmpty = !player.pet;
+  addPet(newPet(type));
+  log((LANG==='en'?'🥚 A ':'🥚 알에서 ')+petTypeName(type)
+    +(wasEmpty ? (LANG==='en'?' hatched — it will fight by your side!':'이(가) 태어났습니다! 함께 사냥을 떠나세요.')
+                : (LANG==='en'?' hatched — kept in your pet box (switch anytime).':'이(가) 태어나 보관함에 들어갔습니다 (언제든 교체).')), 'warn');
   sfx('level'); flash('#ffd24d');
-  renderPet(); refreshUI(); saveGame(false);
+  refreshPetBtn(); renderPet(); refreshUI(); saveGame(false);
 }
+// 보스가 드랍한 알 → 무작위 종류의 펫이 무료로 부화
+function hatchFromEgg(){
+  const types = Object.keys(PET_TYPES), type = types[ri(0, types.length-1)];
+  const wasEmpty = !player.pet;
+  addPet(newPet(type));
+  log((LANG==='en'?'🥚 The egg hatched into a ':'🥚 알에서 ')+petTypeName(type)
+    +(wasEmpty ? (LANG==='en'?'!':'이(가) 나왔습니다!') : (LANG==='en'?' — kept in your pet box.':'이(가) 나와 보관함에 들어갔습니다.')), 'warn');
+  sfx('level'); flash('#ffd24d');
+  const panel = document.getElementById('pet'); if(panel){ panel.style.display='block'; renderPet(); }
+  refreshPetBtn(); refreshUI(); saveGame(false);
+}
+// 보관함의 펫과 현재 활성 펫을 교체 (레벨·이름 그대로 유지)
+function switchPet(i){
+  if(!player.pets || !player.pets[i]) return;
+  const chosen = player.pets[i];
+  player.pets.splice(i, 1);
+  if(player.pet){ player.pet.active = true; player.pets.push(player.pet); }
+  chosen.active = true; chosen.x = player.x; chosen.y = player.y; chosen.cd = 0;
+  player.pet = chosen;
+  log((LANG==='en'?'Now adventuring with ':'이제 ')+petDisplayName(chosen)+(LANG==='en'?'.':'와(과) 함께합니다.'), 'sys');
+  sfx('coin'); refreshPetBtn(); renderPet(); saveGame(false);
+}
+function renamePet(){
+  if(!player.pet) return;
+  const el = document.getElementById('petNameInput'); if(!el) return;
+  player.pet.name = (el.value || '').trim().slice(0, 16);
+  log((LANG==='en'?'Renamed your pet to ':'펫 이름을 ')+petDisplayName(player.pet)+(LANG==='en'?'.':'(으)로 지었습니다.'), 'item');
+  refreshPetBtn(); renderPet(); saveGame(false);
+}
+function mkEgg(){ return {id:itemId++, kind:'egg', name: LANG==='en'?'Pet Egg':'펫 알', grade:3}; }
 function feedPet(){
   const pet = player.pet; if(!pet) return;
   if(petIsFed(pet)){ log(LANG==='en'?'Already fed today. Come back tomorrow.':'오늘은 이미 먹이를 줬습니다. 내일 다시 오세요.','warn'); return; }
@@ -2623,31 +2662,46 @@ function togglePetActive(){
 function renderPet(){
   const el = document.getElementById('petBody'); if(!el) return;
   const en = LANG==='en', pet = player.pet;
-  if(!pet){
-    let h = `<div style="color:#b7ab8d;font-size:12px;margin-bottom:10px">${en?'Hatch a companion to fight alongside you. It levels up as you hunt, evolves, and can be fed daily for a boost.':'함께 싸울 동료를 부화시키세요. 사냥하며 레벨이 오르고, 진화하며, 매일 먹이를 주면 강해집니다.'}</div>`;
-    for(const id in PET_TYPES){
-      const t = PET_TYPES[id];
-      h += `<div class="item" style="display:block;padding:8px 4px">
-        <div><b style="color:${t.color}">${petTypeName(id)}</b> <span style="color:#8f8266;font-size:11px">· ${en?'ATK base':'기본 공격'} ${t.base}</span></div>
-        <div style="color:#8f8266;font-size:11px;margin:2px 0 6px">${t.desc}</div>
-        <button onclick="hatchPet('${id}')">${en?`Hatch · ${PET_HATCH_COST.toLocaleString()} adena`:`부화 · ${PET_HATCH_COST.toLocaleString()} 아데나`}</button></div>`;
-    }
-    el.innerHTML = h; return;
-  }
-  const t = PET_TYPES[pet.type], need = petXpNeed(pet.lv), pct = Math.min(100, Math.round(pet.xp/need*100));
-  const fed = petIsFed(pet);
-  el.innerHTML = `
-    <div style="margin-bottom:8px"><b style="color:${t.color};font-size:15px">${petDisplayName(pet)}</b>
+  if(!player.pets) player.pets = [];
+  let h = '';
+  if(pet){
+    const t = PET_TYPES[pet.type], need = petXpNeed(pet.lv), pct = Math.min(100, Math.round(pet.xp/need*100)), fed = petIsFed(pet);
+    h += `<div style="margin-bottom:6px"><b style="color:${t.color};font-size:15px">${petDisplayName(pet)}</b>
       <span style="color:#8f8266;font-size:11px"> · ${petTypeName(pet.type)}</span></div>
-    <div class="stat"><span>${en?'Level':'레벨'}</span><span>Lv.${pet.lv} <span style="color:#8f8266;font-size:11px">(${en?'stage':'단계'} ${petStage(pet)+1}/3)</span></span></div>
-    <div class="stat"><span>${en?'Attack':'공격력'}</span><span>${petAtkOf(pet)}${fed?` <span style="color:#5ac878">(+20%)</span>`:''}</span></div>
-    <div style="margin:6px 0 3px;color:#8f8266;font-size:11px">${en?'Growth':'성장'} ${pet.xp}/${need}</div>
-    <div style="height:8px;background:#241f18;border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${t.color}"></div></div>
-    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-      <button onclick="feedPet()" ${fed?'disabled':''}>${fed?(en?'Fed today ✓':'오늘 먹이 완료 ✓'):(en?'Feed · 5,000 adena':'먹이 주기 · 5,000 아데나')}</button>
-      <button onclick="togglePetActive()">${pet.active?(en?'Resting off (following)':'따라다니는 중 — 쉬게 하기'):(en?'Summon (resting)':'쉬는 중 — 부르기')}</button>
-    </div>
-    <div style="color:#8f8266;font-size:11px;margin-top:8px">${en?'Your pet auto-attacks nearby monsters and your target. Feed it once a day for a lasting boost — evolves at Lv.15 and Lv.35.':'펫은 근처 몬스터와 지정 대상을 자동 공격합니다. 하루 한 번 먹이를 주면 종일 강해지고, Lv.15·35에 진화합니다.'}</div>`;
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <input id="petNameInput" maxlength="16" placeholder="${en?'Name your pet':'펫 이름'}" value="${(pet.name||'').replace(/"/g,'&quot;')}"
+          style="flex:1;min-width:0;background:#241f18;border:1px solid #3a3226;color:#e8dcc0;border-radius:5px;padding:4px 7px;font-size:12px" onclick="event.stopPropagation()">
+        <button onclick="renamePet()" style="font-size:11px;white-space:nowrap">${en?'Rename':'이름 짓기'}</button></div>
+      <div class="stat"><span>${en?'Level':'레벨'}</span><span>Lv.${pet.lv} <span style="color:#8f8266;font-size:11px">(${en?'stage':'단계'} ${petStage(pet)+1}/3)</span></span></div>
+      <div class="stat"><span>${en?'Attack':'공격력'}</span><span>${petAtkOf(pet)}${fed?` <span style="color:#5ac878">(+20%)</span>`:''}</span></div>
+      <div style="margin:6px 0 3px;color:#8f8266;font-size:11px">${en?'Growth':'성장'} ${pet.xp}/${need}</div>
+      <div style="height:8px;background:#241f18;border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${t.color}"></div></div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button onclick="feedPet()" ${fed?'disabled':''}>${fed?(en?'Fed today ✓':'오늘 먹이 완료 ✓'):(en?'Feed · 5,000 adena':'먹이 주기 · 5,000 아데나')}</button>
+        <button onclick="togglePetActive()">${pet.active?(en?'Rest':'쉬게 하기'):(en?'Summon':'부르기')}</button>
+      </div>`;
+  } else {
+    h += `<div style="color:#b7ab8d;font-size:12px;margin-bottom:6px">${en?'Hatch a companion to fight alongside you — it levels up, evolves, and you can name it and feed it daily.':'함께 싸울 동료를 부화시키세요. 레벨이 오르고 진화하며, 이름을 짓고 매일 먹이를 줄 수 있습니다.'}</div>`;
+  }
+  // 보관함 — 눌러서 교체
+  if(player.pets.length){
+    h += `<div class="invsec" style="margin-top:12px">${en?'My pets — switch anytime':'내 펫 — 눌러서 교체'}</div>`;
+    player.pets.forEach((bp,i)=>{
+      const bt = PET_TYPES[bp.type];
+      h += `<div class="item"><span class="nm"><b style="color:${bt.color}">${petDisplayName(bp)}</b> <span style="color:#8f8266;font-size:11px">· ${petTypeName(bp.type)} Lv.${bp.lv}</span></span>
+        <button onclick="switchPet(${i})" style="font-size:11px">${en?'Switch':'교체'}</button></div>`;
+    });
+  }
+  // 새 펫 부화
+  h += `<div class="invsec" style="margin-top:12px">${en?'Hatch a new pet':'새 펫 부화'}</div>`;
+  for(const id in PET_TYPES){
+    const t = PET_TYPES[id];
+    h += `<div class="item" style="display:block;padding:8px 4px">
+      <div><b style="color:${t.color}">${petTypeName(id)}</b> <span style="color:#8f8266;font-size:11px">· ${t.desc}</span></div>
+      <button onclick="hatchPet('${id}')" style="margin-top:5px">${en?`Hatch · ${PET_HATCH_COST.toLocaleString()} adena`:`부화 · ${PET_HATCH_COST.toLocaleString()} 아데나`}</button></div>`;
+  }
+  h += `<div style="color:#8f8266;font-size:11px;margin-top:8px">${en?'Bosses can drop a Pet Egg 🥚 — use it for a free random pet. Pets auto-attack and evolve at Lv.15 and Lv.35.':'보스가 펫 알 🥚을 드랍합니다 — 사용하면 무작위 펫이 무료로 부화해요. 펫은 자동 공격하고 Lv.15·35에 진화합니다.'}</div>`;
+  el.innerHTML = h;
 }
 function gainXp(v){
   // 한 번의 처치로 얻는 경험치를 현재 레벨 요구치의 34%로 제한 — 고레벨 몹 한 마리에
@@ -2916,6 +2970,7 @@ function iconOf(it){
   if(it.kind==='weapon') return '🗡️';
   if(it.kind==='armor')  return (SLOTS[it.slot||'chest']||SLOTS.chest).icon;
   if(it.kind==='potion') return potionGlyph(it.sub);
+  if(it.kind==='egg') return '🥚';
   if(it.kind==='gem') return '💎';
   if(it.sub==='morph') return '🐺';
   if(it.sub==='teleport') return '🌀';
@@ -3009,6 +3064,11 @@ function tipHtml(p){
     body = `<div class="tstat">${POTIONS[it.sub].desc}</div>
             <div class="tdesc">보유: ${p.count}개${hot}</div>`;
     key = '클릭: 사용 · 우클릭: 버리기';
+  } else if(it.kind==='egg'){
+    const en2 = LANG==='en';
+    body = `<div class="tstat">${en2?'A pet egg dropped by a boss.':'보스가 떨어뜨린 펫 알.'}</div>
+            <div class="tdesc">${en2?'Use it to hatch a random companion for free.':'사용하면 무작위 펫이 무료로 부화합니다.'}</div>`;
+    key = en2?'Click: hatch · Right-click: drop':'클릭: 부화 · 우클릭: 버리기';
   } else if(it.kind==='gem'){
     body = `<div class="tstat">${LANG==='en'?'Sells for '+it.value.toLocaleString()+' adena':'판매가 '+it.value.toLocaleString()+' 아데나'}</div>
             <div class="tdesc">영롱하게 빛나는 보석. 상점이 제값을 쳐준다.</div>
@@ -5050,17 +5110,23 @@ function drawSwordArm(X,Y,f,atk,p){
 function drawPet(){
   const pet = player.pet; if(!pet || !pet.active || pet.x==null) return;
   const s = tileToScreen(pet.x, pet.y);
-  drawShadow(s, 9);
+  drawShadow(s, 13);
   const f = pet.dir||1, t = animT*11;
   const bob = pet.moving ? Math.abs(Math.sin(t))*1.4 : Math.sin(animT*2.5+ (pet.lv||0))*.8;
   const atk = pet.atkAnim>0 ? pet.atkAnim/0.22 : 0;
   const st = petStage(pet), col = PET_TYPES[pet.type].color;
   cx.save();
   cx.translate(s.x + f*atk*3, s.y - bob);
-  cx.scale(.92, .92);
+  cx.scale(1.42, 1.42);   // 펫 크기 상향 (AJ 제보 — 더 크게)
   if(st>=1){ cx.globalAlpha=.28+(st>=2?.16:0); E(0,-8,11+st*2,12+st*2,col); cx.globalAlpha=1; }  // 진화 오라
   drawPetSprite(pet.type, f, col, st);
   cx.restore();
+  // 이름표 — 캐릭터처럼 펫 위에 표시 (펫 종류 색)
+  cx.textAlign='center'; cx.font='bold 11px sans-serif';
+  const pn = petDisplayName(pet), ny = s.y - 48;
+  cx.fillStyle='#000'; cx.fillText(pn, s.x+1, ny+1);
+  cx.fillStyle = col; cx.fillText(pn, s.x, ny);
+  cx.textAlign='left';
 }
 function drawPetSprite(type, f, col, st){
   if(type==='pet_pup'){
@@ -5677,6 +5743,7 @@ function startGame(p){
   if(!p.altar || p.altar.atkN==null) p.altar = {atk:0, def:0, hp:0, atkN:0, defN:0, hpN:0};
   if(p.autoSalvage == null) p.autoSalvage = false;
   if(p.autoSell == null) p.autoSell = true;
+  if(!Array.isArray(p.pets)) p.pets = [];
   if(p.invSlots == null)   p.invSlots   = Math.max(INV_BASE,   Math.ceil(p.inv.length / INV_STEP) * INV_STEP);
   if(p.storeSlots == null) p.storeSlots = Math.max(STORE_BASE, Math.ceil((p.storage||[]).length / STORE_STEP) * STORE_STEP);
   // 개발용 테스트 지급 — ?gm=1 로 접속했을 때만 (일반 플레이어에게는 지급되지 않음)
