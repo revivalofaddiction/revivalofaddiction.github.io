@@ -464,7 +464,11 @@ const MAP_DEFS = {
             portals:[{x:5, y:5, to:'cave',   tx:45,ty:45,label:'탐욕의 동굴로'},
                      {x:50,y:50,to:'sanctum',tx:6, ty:6, label:'태초의 성역 입구'}]},
   sanctum: {name:'태초의 성역', size:56, theme:'sanctum', seed:20260719, mobCount:32, pools:[20,21],
-            portals:[{x:5, y:5, to:'dom',    tx:49,ty:49,label:'폭군의 탑으로'}]},
+            portals:[{x:5, y:5, to:'dom',    tx:49,ty:49,label:'폭군의 탑으로'},
+                     {x:50,y:50,to:'endless',tx:6, ty:6, label:'무한의 나락 입구'}]},
+  // 무한의 나락: 끝이 없는 사냥터. 몬스터가 내 레벨 + 심연 깊이에 맞춰 계속 강해지고 보상도 커진다.
+  endless: {name:'무한의 나락', size:56, theme:'dom', seed:20260720, mobCount:36, pools:[20,21], endless:true,
+            portals:[{x:5, y:5, to:'sanctum', tx:49,ty:49, label:'태초의 성역으로'}]},
 };
 let curMapId = 'field', portalCd = 0;
 const mapCache = {};
@@ -1688,6 +1692,7 @@ const MOVE_DESTS = [
   {id:'cave',    label:'탐욕의 동굴',    x:6,  y:6},
   {id:'dom',     label:'폭군의 탑',      x:6,  y:6},
   {id:'sanctum', label:'태초의 성역',    x:6,  y:6},
+  {id:'endless', label:'무한의 나락',    x:6,  y:6},
 ];
 let pendingMoveScroll = null;
 function openMovePanel(scroll){
@@ -2132,6 +2137,20 @@ function spawnBoss(mapId){
              home:{...b.home}, aggro:false, ph:Math.random()*6.28, dir:-1, hitT:0, atkAnim:0});
   log(b.wake, 'death');
 }
+// 무한의 나락: 몬스터를 (내 레벨 + 심연 깊이)에 맞춰 스케일. 깊을수록 강하고 보상도 커진다.
+function scaleAbyss(m){
+  const depth = (player && player.abyssDepth) || 0;
+  const targetLv = Math.max(m.lv, (player ? player.lv : 1) + depth*4 + 5);
+  const k = targetLv / m.lv;
+  m.lv  = Math.round(targetLv);
+  m.hp  = m.hpMax = Math.max(1, Math.round(m.hp  * Math.pow(k, 1.5)));
+  m.atk = Math.max(1, Math.round(m.atk * Math.pow(k, 1.35)));
+  m.xp  = Math.max(1, Math.round(m.xp  * Math.pow(k, 1.5)));
+  const a0 = m.adena ? m.adena[0] : 1, a1 = m.adena ? m.adena[1] : 1;
+  m.adena = [Math.round(a0 * Math.pow(k, 1.4)), Math.round(a1 * Math.pow(k, 1.4))];
+  m.name  = (LANG==='en' ? 'Abyssal ' : '심연의 ') + m.name;
+  m.color = '#9a5cd0';
+}
 function spawnMob(){
   for(let tries=0;tries<40;tries++){
     const x = rnd(2,MAP-2), y = rnd(2,MAP-2);
@@ -2144,8 +2163,10 @@ function spawnMob(){
     const z = zoneOf({x,y});
     const pool = MOBS.filter(m=>z.tiers.includes(m.tier));
     const proto = pool[ri(0,pool.length-1)];
-    mobs.push({...proto, x, y, hpMax:proto.hp, hp:proto.hp, cd:0, home:{x,y}, aggro:false,
-               ph:Math.random()*6.28, dir:Math.random()<.5?-1:1, hitT:0, atkAnim:0});
+    const mob = {...proto, x, y, hpMax:proto.hp, hp:proto.hp, cd:0, home:{x,y}, aggro:false,
+               ph:Math.random()*6.28, dir:Math.random()<.5?-1:1, hitT:0, atkAnim:0};
+    if(MAP_DEFS[curMapId].endless) scaleAbyss(mob);
+    mobs.push(mob);
     return;
   }
 }
@@ -2335,6 +2356,16 @@ function killMob(m){
   dailyAdd('kills', 1);
   gainXp(xp);
   dropLoot(m);
+  // 무한의 나락: 처치를 쌓으면 심연 깊이가 깊어지고(40킬마다), 몬스터가 더 강해진다.
+  if(MAP_DEFS[curMapId].endless && !m.boss){
+    player.abyssKills = (player.abyssKills||0) + 1;
+    if(player.abyssKills % 40 === 0){
+      player.abyssDepth = (player.abyssDepth||0) + 1;
+      log(LANG==='en'
+        ? 'The abyss deepens — depth '+player.abyssDepth+'. Monsters grow stronger, rewards grow richer.'
+        : '나락이 더 깊어집니다 — 심연 깊이 '+player.abyssDepth+'. 몬스터가 더 강해지고 보상도 커집니다.', 'warn');
+    }
+  }
   mobs = mobs.filter(o=>o!==m);
   if(player.target===m) player.target = null;
 }
@@ -3205,8 +3236,10 @@ function update(dt){
   if(flashT>0) flashT-=dt;
   camX = (player.x-player.y)*(TILE_W/2);
   camY = (player.x+player.y)*(TILE_H/2);
-  const zn = MAP_DEFS[curMapId].name + (curMapId==='field' ? ' — '+zoneOf(player).name : '');
-  document.getElementById('zone').textContent = player.dead ? '' : zn + (player.dead ? '' : zoneAdvice());
+  const _endless = MAP_DEFS[curMapId].endless;
+  const zn = MAP_DEFS[curMapId].name + (curMapId==='field' ? ' — '+zoneOf(player).name : '')
+           + (_endless ? (LANG==='en' ? ' · Depth '+(player.abyssDepth||0) : ' · 심연 깊이 '+(player.abyssDepth||0)) : '');
+  document.getElementById('zone').textContent = player.dead ? '' : zn + (player.dead || _endless ? '' : zoneAdvice());
   dailyTick(dt);
 }
 
@@ -4730,6 +4763,7 @@ const NAME_EN = {
   '카르돈 필드':'Kardon Fields','잿빛 첨탑 던전':'Ashen Spire Dungeon','용의 둥지':'Dragon Lair',
   '얼어붙은 심연':'Frozen Abyss','몰락한 마탑':'Fallen Spire','이그니스의 화산':'Ignis Volcano',
   '움브라':'Umbra','탐욕의 동굴':'Cave of Greed','폭군의 탑':"Tyrant's Tower",'태초의 성역':'Primeval Sanctum',
+  '무한의 나락':'The Endless Abyss',
   '속삭이는 섬 마을':'Whispering Isle Village','속삭이는 섬':'Whispering Isle','바람맞이 평원':'Windward Plains',
   '오크 요새':'Orc Fortress','용의 계곡 입구':'Dragon Valley Gate','용의 계곡':'Dragon Valley',
   // 몬스터/보스
