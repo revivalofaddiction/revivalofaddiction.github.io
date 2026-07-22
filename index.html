@@ -1760,21 +1760,22 @@ function autoHuntTick(){
   }
   // 타겟이 없으면 가까운 몬스터 자동 선택
   if(!player.target && !player.moveTo){
-    // 감당 가능한 레벨 상한. 저레벨에서는 좁고, 성장할수록 알아서 넓어진다.
-    // 이게 없으면 자동사냥이 안전지대를 다 쓸고 상위 구역으로 흘러들어가 죽는다.
-    const lvCap = Math.max(player.lv + 5, player.lv * 1.6);
-    // 하한은 두지 않는다. 하한을 걸면 초보가 눈앞의 몹을 두고 수십 타일씩 걸어다니고,
-    // 정작 중반 정체(Lv.40이 Lv.8 늑대를 잡는 문제)는 사냥터 자동 이동으로 해결된다.
-    const lvFloor = 0;
+    // 감당 가능한 레벨 상한. 저레벨에서도 시작 필드의 tier-2(오크 lv8~10)까지는
+    // 닿도록 하한을 12로 둔다. 이게 낮으면 눈앞의 몹이 상한을 넘겨 걸러지고,
+    // 자동사냥이 멀리 있는 저레벨 몹까지 걸어간다. (AJ 제보: 저렙 마법사)
+    const lvCap = Math.max(player.lv + 6, Math.round(player.lv * 1.7), 12);
+    // 아주 가까운(≈6타일) 적은 상한을 조금 넘어도 그냥 친다 — 눈앞의 적을 두고
+    // 먼 저레벨로 걸어가지 않게. 다만 자살 매치는 막도록 여기서 상한을 준다.
+    const closeCap = Math.max(lvCap, player.lv + 14);
     // 기본은 '가까운 놈부터'. 경험치가 크다는 이유로 눈앞의 몹을 지나쳐
     // 멀리 달려가면 사냥이 부자연스럽고 도중에 얻어맞는다.
     const SPEED = 3.2;   // 타일/초
     const KILL  = 2.5;   // 한 마리 처치에 드는 대략적인 시간(초)
-    const nearest = (radius, capped) => {
+    const nearest = (radius, cap) => {
       let b=null, bd=Infinity;
       for(const m of mobs){
         if((m._skipT||0) > 0) continue; // 길이 막혔던 사냥감은 잠시 제외
-        if(capped && !m.boss && ((m.lv||1) > lvCap || (m.lv||1) < lvFloor)) continue;
+        if(cap != null && !m.boss && (m.lv||1) > cap) continue;
         const dd = dist(player,m);
         if(dd > radius || dd >= bd) continue;
         bd = dd; b = m;
@@ -1782,18 +1783,20 @@ function autoHuntTick(){
       return b;
     };
     // 주변이 완전히 비었을 때만 초당 경험치를 따져 멀리 이동한다.
-    const efficient = capped => {
+    const efficient = cap => {
       let b=null, bs=-1;
       for(const m of mobs){
         if((m._skipT||0) > 0) continue;
-        if(capped && !m.boss && ((m.lv||1) > lvCap || (m.lv||1) < lvFloor)) continue;
+        if(cap != null && !m.boss && (m.lv||1) > cap) continue;
         const sc = (m.xp || 1) / (dist(player,m)/SPEED + KILL);
         if(sc > bs){ bs=sc; b=m; }
       }
       return b;
     };
-    let best = nearest(12, true) || nearest(25, true) || efficient(true)
-            || nearest(25, false) || efficient(false);
+    // 눈앞(≈6타일)의 적을 최우선으로. 그다음 상한 내 가까운 순 → 멀리 → 효율.
+    let best = nearest(6, closeCap)
+            || nearest(12, lvCap) || nearest(25, lvCap) || efficient(lvCap)
+            || nearest(25, null)  || efficient(null);
     // 전부 '막힘' 처리돼 있으면 제외 목록을 풀고 다시 시도 (영구 정지 방지)
     if(!best && mobs.length){
       for(const m of mobs) m._skipT = 0;
