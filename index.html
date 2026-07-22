@@ -244,6 +244,7 @@
   <button id="dailyBtn" onclick="togglePanel('daily')" title="오늘의 목표와 보상">🎯 목표</button>
   <button id="autoBtn" onclick="toggleAuto()">자동사냥</button>
   <button id="autoSellBtn" onclick="toggleAutoSell()" title="자동사냥 중 가방이 차면 장착보다 못한 장비·보석을 자동 판매할지 선택">💰 자동판매</button>
+  <button id="petBtn" onclick="togglePanel('pet')" title="펫 — 함께 사냥하는 동료">🐾 펫</button>
   <button id="sleepBtn" onclick="toggleSleep()" title="Lv.20 해금 — 화면을 끄고 자동사냥 지속">💤 수면</button>
   <button id="muteBtn" onclick="toggleMute()" title="소리 켜기 / 끄기 (M)">🔊</button>
   <button onclick="redeemCoupon()" title="후원 쿠폰 입력">🎁</button>
@@ -257,6 +258,7 @@
 <div class="panel" id="inv"><span class="close" onclick="togglePanel('inv')">✕</span><h3>인벤토리</h3><div id="invList"></div></div>
 <div class="panel" id="daily"><span class="close" onclick="togglePanel('daily')">✕</span><h3>일일 목표</h3><div id="dailyBody"></div></div>
 <div class="panel" id="chr"><span class="close" onclick="togglePanel('chr')">✕</span><h3>캐릭터 정보</h3><div id="chrBody"></div></div>
+<div class="panel" id="pet" style="top:212px; right:16px; width:264px;"><span class="close" onclick="togglePanel('pet')">✕</span><h3>🐾 펫</h3><div id="petBody"></div></div>
 <div class="panel" id="clan"><span class="close" onclick="togglePanel('clan')">✕</span><h3>혈맹</h3><div id="clanBody"></div></div>
 <div class="panel" id="shop"><span class="close" onclick="togglePanel('shop')">✕</span><h3>카르돈 상점</h3><div id="shopBody"></div></div>
 <div class="panel" id="morph" style="top:120px; left:50%; transform:translateX(-50%); width:320px;"><span class="close" onclick="document.getElementById('morph').style.display='none'">✕</span><h3>변신</h3><div id="morphBody"></div></div>
@@ -706,7 +708,7 @@ function newPlayer(cls, name){
     lv:1, xp:0, atkCd:0, adena:250, dir:1, mapId:'field', morph:null, slotId:Date.now(),
     weapon:null, helmet:null, chest:null, belt:null, gloves:null, legs:null, necklace:null,
     clan:null, storage:[], visited:['field'], buffs:{}, hotbar:HOTBAR_DEFAULT.slice(),
-    altar:{atk:0, def:0, hp:0, atkN:0, defN:0, hpN:0}, autoSalvage:false, autoSell:true,
+    altar:{atk:0, def:0, hp:0, atkN:0, defN:0, hpN:0}, autoSalvage:false, autoSell:true, pet:null,
     inv:[ {...mkPotion('red'), qty:10}, {...mkPotion('blue'), qty:2}, {...mkScroll('teleport'), qty:2} ],
     target:null, moveTo:null, dead:false, deadT:0,
   };
@@ -2508,8 +2510,144 @@ function killMob(m){
         : '화염이 더 거세집니다 — 지옥 깊이 '+player.abyssDepth+'. 몬스터가 더 강해지고 보상도 커집니다.', 'warn');
     }
   }
+  if(player.pet && player.pet.active) petGainXp(1);   // 펫도 함께 성장
   mobs = mobs.filter(o=>o!==m);
   if(player.target===m) player.target = null;
+}
+// ===================== 펫 시스템 (동료 · 자동 전투 · 성장 · 진화 · 일일 먹이) =====================
+const PET_TYPES = {
+  emberpup: {name:'불꽃 강아지',  kind:'pet_pup',  color:'#ff8a3a', base:7, desc:'화염의 지옥에서 온 새끼. 저돌적이고 공격적.'},
+  frostcub: {name:'서리 늑대새끼', kind:'pet_wolf', color:'#9cd0e8', base:6, desc:'차분하고 단단한 동료. 꾸준한 피해.'},
+  wisp:     {name:'빛의 정령',    kind:'pet_wisp', color:'#c8a2ff', base:6, desc:'떠다니며 함께 싸우는 신비한 정령.'},
+};
+const PET_TYPES_EN = { emberpup:'Ember Pup', frostcub:'Frost Cub', wisp:'Light Wisp' };
+function petStage(pet){ return pet.lv>=35 ? 2 : pet.lv>=15 ? 1 : 0; }
+function petStageMult(pet){ return [1, 1.35, 1.8][petStage(pet)]; }
+function petTypeName(type){ return LANG==='en' ? PET_TYPES_EN[type] : PET_TYPES[type].name; }
+function petDisplayName(pet){
+  const en = LANG==='en', st = petStage(pet);
+  const pre = en ? ['Baby ','','Awakened '][st] : ['아기 ','','각성 '][st];
+  return pre + (pet.name || petTypeName(pet.type));
+}
+function petXpNeed(lv){ return 8 + lv*4; }           // 성장에 필요한 처치 수
+function todayNum(){ return Math.floor(Date.now()/86400000); }
+function petIsFed(pet){ return !!pet && pet.fedDay === todayNum(); }
+function petAtkOf(pet){
+  const t = PET_TYPES[pet.type];
+  const fed = petIsFed(pet) ? 1.2 : 1;               // 오늘 먹이를 준 펫은 공격력 +20%
+  return Math.max(1, Math.round((t.base + pet.lv*2.2) * (1 + player.lv*0.03) * petStageMult(pet) * fed));
+}
+function newPet(type, name){ return {type, name:name||'', lv:1, xp:0, x:null, y:null, cd:0, atkAnim:0, active:true, fedDay:-1, dir:1}; }
+function petGainXp(n){
+  const pet = player.pet; if(!pet) return;
+  const s0 = petStage(pet);
+  pet.xp += n;
+  let leveled = false;
+  while(pet.xp >= petXpNeed(pet.lv)){ pet.xp -= petXpNeed(pet.lv); pet.lv++; leveled = true; }
+  if(leveled){
+    if(petStage(pet) > s0){ log((LANG==='en'?'✨ Your pet evolved — ':'✨ 펫이 진화했습니다 — ')+petDisplayName(pet)+'!', 'warn'); sfx('level'); flash('#ffd24d'); }
+    else { log((LANG==='en'?'Pet grew — ':'펫이 성장 — ')+petDisplayName(pet)+' Lv.'+pet.lv, 'sys'); }
+    if(document.getElementById('pet') && document.getElementById('pet').style.display==='block') renderPet();
+    refreshPetBtn();
+  }
+}
+function petTargetFor(pet){
+  if(player.target && player.target.hp>0 && mobs.includes(player.target)) return player.target;
+  let best=null, bd=6;
+  for(const m of mobs){ if(m.hp<=0) continue; const d=Math.hypot(m.x-pet.x, m.y-pet.y); if(d<bd){ bd=d; best=m; } }
+  return best;
+}
+function petFollow(dt){
+  const pet = player.pet;
+  const d = Math.hypot(pet.x-player.x, pet.y-player.y);
+  if(d > 1.4){ moveEntity(pet, player.x, player.y, 4.6*dt); pet.moving = d>2.4; pet.dir = player.x>pet.x?1:-1; }
+  else pet.moving = false;
+}
+function petTick(dt){
+  const pet = player.pet; if(!pet || !pet.active) return;
+  if(pet.x==null){ pet.x=player.x; pet.y=player.y; }
+  pet.atkAnim = Math.max(0,(pet.atkAnim||0)-dt);
+  pet.cd = Math.max(0,(pet.cd||0)-dt);
+  if(player.dead || inTown(player)){ petFollow(dt); return; }   // 마을·사망 중엔 전투 안 함
+  const target = petTargetFor(pet);
+  if(target){
+    const pd = Math.hypot(pet.x-target.x, pet.y-target.y);
+    if(pd > 1.8){ moveEntity(pet, target.x, target.y, 4.6*dt); pet.moving = true; pet.dir = target.x>pet.x?1:-1; }
+    else if(pet.cd<=0){
+      pet.cd = 1.0; pet.atkAnim = 0.22; pet.moving = false; pet.dir = target.x>pet.x?1:-1;
+      const dmg = petAtkOf(pet);
+      target.hp -= dmg; target.aggro = true; target.hitT = .12;
+      addFloat(target.x, target.y-.4, '-'+dmg, '#ffe08a');
+      if(target.hp<=0) killMob(target);
+    } else pet.moving = false;
+  } else petFollow(dt);
+}
+// ── 펫 UI ──
+function refreshPetBtn(){
+  const b = document.getElementById('petBtn'); if(!b) return;
+  const en = LANG==='en';
+  b.textContent = (player && player.pet) ? `🐾 ${en?'Pet':'펫'} Lv.${player.pet.lv}` : `🐾 ${en?'Pet':'펫'}`;
+}
+const PET_HATCH_COST = 30000;
+function hatchPet(type){
+  if(player.pet){ log(LANG==='en'?'You already have a pet.':'이미 펫이 있습니다.','warn'); return; }
+  if(!PET_TYPES[type]) return;
+  if(player.adena < PET_HATCH_COST){ log(LANG==='en'?'Not enough adena.':`아데나가 부족합니다. (${PET_HATCH_COST.toLocaleString()} 필요)`,'warn'); return; }
+  player.adena -= PET_HATCH_COST;
+  player.pet = newPet(type);
+  player.pet.x = player.x; player.pet.y = player.y;
+  log((LANG==='en'?'🥚 A ':'🥚 알에서 ')+petTypeName(type)+(LANG==='en'?' hatched — it will fight by your side!':'이(가) 태어났습니다! 함께 사냥을 떠나세요.'), 'warn');
+  sfx('level'); flash('#ffd24d');
+  renderPet(); refreshUI(); saveGame(false);
+}
+function feedPet(){
+  const pet = player.pet; if(!pet) return;
+  if(petIsFed(pet)){ log(LANG==='en'?'Already fed today. Come back tomorrow.':'오늘은 이미 먹이를 줬습니다. 내일 다시 오세요.','warn'); return; }
+  const cost = 5000;
+  if(player.adena < cost){ log(LANG==='en'?'Not enough adena.':'아데나가 부족합니다.','warn'); return; }
+  player.adena -= cost;
+  pet.fedDay = todayNum();
+  const bonus = 6 + pet.lv*2;
+  log((LANG==='en'?'🍖 Fed your pet! Today: ATK +20%, XP +':'🍖 먹이를 줬습니다! 오늘 하루 공격력 +20%, 경험치 +')+bonus, 'item');
+  sfx('coin');
+  petGainXp(bonus);
+  renderPet(); refreshUI(); saveGame(false);
+}
+function togglePetActive(){
+  if(!player.pet) return;
+  player.pet.active = !player.pet.active;
+  if(player.pet.active){ player.pet.x=player.x; player.pet.y=player.y; }
+  log(player.pet.active ? (LANG==='en'?'Your pet follows you.':'펫이 당신을 따릅니다.') : (LANG==='en'?'Your pet is resting.':'펫을 쉬게 했습니다.'),'sys');
+  refreshPetBtn(); renderPet(); saveGame(false);
+}
+function renderPet(){
+  const el = document.getElementById('petBody'); if(!el) return;
+  const en = LANG==='en', pet = player.pet;
+  if(!pet){
+    let h = `<div style="color:#b7ab8d;font-size:12px;margin-bottom:10px">${en?'Hatch a companion to fight alongside you. It levels up as you hunt, evolves, and can be fed daily for a boost.':'함께 싸울 동료를 부화시키세요. 사냥하며 레벨이 오르고, 진화하며, 매일 먹이를 주면 강해집니다.'}</div>`;
+    for(const id in PET_TYPES){
+      const t = PET_TYPES[id];
+      h += `<div class="item" style="display:block;padding:8px 4px">
+        <div><b style="color:${t.color}">${petTypeName(id)}</b> <span style="color:#8f8266;font-size:11px">· ${en?'ATK base':'기본 공격'} ${t.base}</span></div>
+        <div style="color:#8f8266;font-size:11px;margin:2px 0 6px">${t.desc}</div>
+        <button onclick="hatchPet('${id}')">${en?`Hatch · ${PET_HATCH_COST.toLocaleString()} adena`:`부화 · ${PET_HATCH_COST.toLocaleString()} 아데나`}</button></div>`;
+    }
+    el.innerHTML = h; return;
+  }
+  const t = PET_TYPES[pet.type], need = petXpNeed(pet.lv), pct = Math.min(100, Math.round(pet.xp/need*100));
+  const fed = petIsFed(pet);
+  el.innerHTML = `
+    <div style="margin-bottom:8px"><b style="color:${t.color};font-size:15px">${petDisplayName(pet)}</b>
+      <span style="color:#8f8266;font-size:11px"> · ${petTypeName(pet.type)}</span></div>
+    <div class="stat"><span>${en?'Level':'레벨'}</span><span>Lv.${pet.lv} <span style="color:#8f8266;font-size:11px">(${en?'stage':'단계'} ${petStage(pet)+1}/3)</span></span></div>
+    <div class="stat"><span>${en?'Attack':'공격력'}</span><span>${petAtkOf(pet)}${fed?` <span style="color:#5ac878">(+20%)</span>`:''}</span></div>
+    <div style="margin:6px 0 3px;color:#8f8266;font-size:11px">${en?'Growth':'성장'} ${pet.xp}/${need}</div>
+    <div style="height:8px;background:#241f18;border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${t.color}"></div></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button onclick="feedPet()" ${fed?'disabled':''}>${fed?(en?'Fed today ✓':'오늘 먹이 완료 ✓'):(en?'Feed · 5,000 adena':'먹이 주기 · 5,000 아데나')}</button>
+      <button onclick="togglePetActive()">${pet.active?(en?'Resting off (following)':'따라다니는 중 — 쉬게 하기'):(en?'Summon (resting)':'쉬는 중 — 부르기')}</button>
+    </div>
+    <div style="color:#8f8266;font-size:11px;margin-top:8px">${en?'Your pet auto-attacks nearby monsters and your target. Feed it once a day for a lasting boost — evolves at Lv.15 and Lv.35.':'펫은 근처 몬스터와 지정 대상을 자동 공격합니다. 하루 한 번 먹이를 주면 종일 강해지고, Lv.15·35에 진화합니다.'}</div>`;
 }
 function gainXp(v){
   // 한 번의 처치로 얻는 경험치를 현재 레벨 요구치의 34%로 제한 — 고레벨 몹 한 마리에
@@ -2709,7 +2847,7 @@ function togglePanel(id){
   const el = document.getElementById(id);
   const show = el.style.display!=='block';
   el.style.display = show?'block':'none';
-  if(show){ if(id==='inv') renderInv(); if(id==='chr') renderChr(); if(id==='clan') renderClan(); }
+  if(show){ if(id==='inv') renderInv(); if(id==='chr') renderChr(); if(id==='clan') renderClan(); if(id==='pet') renderPet(); }
 }
 function refreshHud(){
   if(!player) return;
@@ -2746,6 +2884,7 @@ function refreshUI(){
   if(!player) return;
   refreshHud();
   updateAutoSellBtn();
+  refreshPetBtn();
   renderHotbar();
   refreshSpellbar();
   if(document.getElementById('inv').style.display==='block') renderInv();
@@ -3429,6 +3568,7 @@ function update(dt){
     m._skipT = Math.max(0, (m._skipT||0)-dt);
     m.slowT = Math.max(0, (m.slowT||0)-dt);
   }
+  petTick(dt);
   for(const k in spellCds) spellCds[k] = Math.max(0, spellCds[k]-dt);
   if(player.cls==='wizard') updateSpellCds();
   player.hitT = Math.max(0, (player.hitT||0)-dt);
@@ -3657,6 +3797,8 @@ function draw(){
       if(map[y][x]===4) ents.push({depth:x+y+1, tree:true, x:x+.5, y:y+.5});
   for(const m of mobs){ if(Math.abs(m.x-px)<range && Math.abs(m.y-py)<range) ents.push({depth:m.x+m.y, mob:m}); }
   if(curMapId==='field') ents.push({depth:BOARD.x+BOARD.y, board:true});
+  if(player.pet && player.pet.active && player.pet.x!=null && Math.abs(player.pet.x-px)<range && Math.abs(player.pet.y-py)<range)
+    ents.push({depth:player.pet.x+player.pet.y, pet:true});
   ents.push({depth:player.x+player.y, pl:true});
   ents.sort((a,b)=>a.depth-b.depth);
   const obFn = def.theme==='field' ? drawTree : (def.theme==='dungeon'||def.theme==='tower'||def.theme==='rasta'||def.theme==='dom') ? drawWall : (def.theme==='ice'||def.theme==='sanctum') ? drawIcePillar : drawRock;
@@ -3664,6 +3806,7 @@ function draw(){
     if(e.tree) obFn(e.x, e.y);
     else if(e.mob) drawMob(e.mob);
     else if(e.board) drawBoard();
+    else if(e.pet) drawPet();
     else drawPlayer();
   }
   // 이펙트
@@ -3938,14 +4081,24 @@ function drawPortals(def){
     cx.fillStyle='#bcd8ff'; cx.fillText(po.label, s.x, s.y-20);
   }
 }
+const _shadowGrads = {};
 function drawShadow(s, r){
-  // 부드러운 그라디언트 그림자 (입체감)
-  const g = cx.createRadialGradient(s.x, s.y, 1, s.x, s.y, r);
-  g.addColorStop(0, 'rgba(0,0,0,.42)');
-  g.addColorStop(.7, 'rgba(0,0,0,.2)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
+  // 부드러운 그라디언트 그림자 (입체감). 그라디언트를 반지름별로 원점(0,0)에 캐시해
+  // 매 프레임 새로 만들지 않는다 — 몹이 많을수록(화염의 지옥 36마리) 성능 차이가 크다.
+  const rk = Math.round(r);
+  let g = _shadowGrads[rk];
+  if(!g){
+    g = cx.createRadialGradient(0, 0, 1, 0, 0, rk||1);
+    g.addColorStop(0, 'rgba(0,0,0,.42)');
+    g.addColorStop(.7, 'rgba(0,0,0,.2)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    _shadowGrads[rk] = g;
+  }
+  cx.save();
+  cx.translate(s.x, s.y);
   cx.fillStyle = g;
-  cx.beginPath(); cx.ellipse(s.x, s.y, r, r*.42, 0, 0, 7); cx.fill();
+  cx.beginPath(); cx.ellipse(0, 0, rk, rk*.42, 0, 0, 7); cx.fill();
+  cx.restore();
 }
 // ---------- 스프라이트 도우미 ----------
 function E(x,y,rx,ry,c){ cx.fillStyle=c; cx.beginPath(); cx.ellipse(x,y,rx,ry,0,0,7); cx.fill(); }
@@ -4894,6 +5047,50 @@ function drawSwordArm(X,Y,f,atk,p){
   L(gx-(ey-hy-5)*.13, gy+(ex-hx)*.13, gx+(ey-hy-5)*.13, gy-(ex-hx)*.13, 2.5, w&&w.grade>=3?'#d4a844':'#8a7448'); // 가드
   slashArc(X, Y, f, atk, w&&w.ench>=7 ? '#ffd24d' : (gcol||'#fff2cc'), 23); // 참격도 등급색
 }
+function drawPet(){
+  const pet = player.pet; if(!pet || !pet.active || pet.x==null) return;
+  const s = tileToScreen(pet.x, pet.y);
+  drawShadow(s, 9);
+  const f = pet.dir||1, t = animT*11;
+  const bob = pet.moving ? Math.abs(Math.sin(t))*1.4 : Math.sin(animT*2.5+ (pet.lv||0))*.8;
+  const atk = pet.atkAnim>0 ? pet.atkAnim/0.22 : 0;
+  const st = petStage(pet), col = PET_TYPES[pet.type].color;
+  cx.save();
+  cx.translate(s.x + f*atk*3, s.y - bob);
+  cx.scale(.92, .92);
+  if(st>=1){ cx.globalAlpha=.28+(st>=2?.16:0); E(0,-8,11+st*2,12+st*2,col); cx.globalAlpha=1; }  // 진화 오라
+  drawPetSprite(pet.type, f, col, st);
+  cx.restore();
+}
+function drawPetSprite(type, f, col, st){
+  if(type==='pet_pup'){
+    L(-4,-4,-4,0,2.6,'#7a3416'); L(4,-4,4,0,2.6,'#7a3416');       // 다리
+    E(0,-7,7,6,col);                                              // 몸통
+    L(-f*6,-8,-f*9,-12-st,2.4,'#ff7a1a');                         // 꼬리 불꽃
+    E(f*5,-11,4.6,4.2,col);                                       // 머리
+    P([[f*3,-14],[f*2,-18-st*2],[f*5,-14.5]],'#ffce4a');          // 귀 불꽃
+    P([[f*8,-11],[f*11,-10],[f*8,-8.5]],'#ffd24d');               // 주둥이
+    E(f*6.5,-11.4,1.1,1.3,'#2a0a02'); E(f*6.2,-11.8,.5,.6,'#fff'); // 눈
+    if(atkGlow()) { cx.globalAlpha=.6; E(f*12,-10,4,4,'#ffd24d'); cx.globalAlpha=1; }
+  } else if(type==='pet_wolf'){
+    L(-4,-4,-4,0,2.6,'#5a6a7a'); L(4,-4,4,0,2.6,'#5a6a7a');
+    E(0,-7,7,5.6,col);
+    L(-f*6,-8,-f*10,-6,2.6,'#7fb0cc');                            // 꼬리
+    E(f*5,-11,4.4,4,col);
+    P([[f*2,-14],[f*1,-18-st],[f*4,-14.5]],'#e8f4fc');            // 귀
+    P([[f*6,-14],[f*7,-18-st],[f*8,-14.5]],'#e8f4fc');
+    P([[f*8,-11],[f*11,-10.5],[f*8,-9]],'#cfe6f4');               // 주둥이
+    E(f*6.5,-11.4,1.1,1.3,'#123'); E(f*6.2,-11.8,.5,.6,'#fff');
+    if(atkGlow()){ cx.globalAlpha=.5; E(f*12,-10.5,3.5,3.5,'#bfe6ff'); cx.globalAlpha=1; }
+  } else { // pet_wisp
+    cx.globalAlpha=.3; E(0,-10,9,10,col); cx.globalAlpha=1;
+    for(let i=-1;i<=1;i++){ const a=animT*4+i*2.1; L(i*4,-10,i*4+Math.cos(a)*3,-10+Math.sin(a)*4-3,1.6,col); } // 위습 꼬리
+    E(0,-10,5.2,5.6,col); E(0,-10,3,3.4,'#f4ecff');
+    E(-f*1.4,-11,1,1.3,'#3a2a5a'); E(f*1.6,-11,1,1.3,'#3a2a5a');   // 두 눈
+    if(atkGlow()){ cx.globalAlpha=.6; E(f*7,-10,4,4,'#e8dcff'); cx.globalAlpha=1; }
+  }
+}
+function atkGlow(){ const pet=player.pet; return pet && pet.atkAnim>0.05; }
 function drawPlayer(){
   const p = player; if(p.dead) return;
   const s = tileToScreen(p.x, p.y);
@@ -5029,9 +5226,12 @@ function drawPlayer(){
 }
 
 function loop(t){
+  requestAnimationFrame(loop);
+  // 60fps 상한: 144/240Hz 게이밍 모니터에서 매 리프레시마다 그리면 CPU를 그만큼 더 먹는다.
+  // 15ms 미만이면 이번 프레임은 건너뛴다(60Hz에선 그대로 매 프레임 실행 — 손해 없음). (렉 제보 대응)
+  if(t - last < 15) return;
   const dt = Math.min(.05, (t-last)/1000); last = t;
   if(running){ update(dt); if(sleepMode) drawSleep(); else draw(); refreshHudLight(); }
-  requestAnimationFrame(loop);
 }
 let hudTimer = 0;
 function refreshHudLight(){
