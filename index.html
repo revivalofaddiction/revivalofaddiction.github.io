@@ -1110,8 +1110,9 @@ function drawBoard(){
   L(s.x-11, s.y-38, s.x+9, s.y-38, 1.5, '#5a442a');
   L(s.x-11, s.y-33, s.x+5, s.y-33, 1.5, '#5a442a');
   cx.font='bold 11px sans-serif'; cx.textAlign='center';
-  cx.fillStyle='#000'; cx.fillText('게시판', s.x+1, s.y-49);
-  cx.fillStyle='#ffd98a'; cx.fillText('게시판', s.x, s.y-50);
+  const _board = LANG==='en' ? 'Notice Board' : '게시판';
+  cx.fillStyle='#000'; cx.fillText(_board, s.x+1, s.y-49);
+  cx.fillStyle='#ffd98a'; cx.fillText(_board, s.x, s.y-50);
 }
 
 // ===================== 단축바 (1~8) =====================
@@ -2519,13 +2520,14 @@ function refreshHud(){
   hn.textContent = mark + player.name + badge + (player.clan?` [${player.clan}]`:'');
   hn.style.color = player.donor ? '#ffd24d' : player.hunter ? '#8ef0ff' : '#d4b96a';
   const bf = [];
-  if(player.buffs && player.buffs.haste>0) bf.push('신속');
-  if(player.buffs && player.buffs.brave>0) bf.push('용맹');
-  if(player.buffs && player.buffs.wafer>0) bf.push('바람');
-  if(player.buffs && player.buffs.sage>0) bf.push('현자');
-  if(player.buffs && player.buffs.royal>0) bf.push('위엄');
+  const _en = LANG==='en';
+  if(player.buffs && player.buffs.haste>0) bf.push(_en?'Haste':'신속');
+  if(player.buffs && player.buffs.brave>0) bf.push(_en?'Might':'용맹');
+  if(player.buffs && player.buffs.wafer>0) bf.push(_en?'Wind':'바람');
+  if(player.buffs && player.buffs.sage>0) bf.push(_en?'Wisdom':'현자');
+  if(player.buffs && player.buffs.royal>0) bf.push(_en?'Valor':'위엄');
   document.getElementById('hudLv').textContent = `Lv.${player.lv} ${CLASSES[player.cls].name}`
-    + (player.morph ? ` · ${player.morph.name} 변신 ${Math.floor(player.morph.t/60)}:${String(Math.ceil(player.morph.t%60)).padStart(2,'0')}` : '')
+    + (player.morph ? ` · ${player.morph.name}${_en?'':' 변신'} ${Math.floor(player.morph.t/60)}:${String(Math.ceil(player.morph.t%60)).padStart(2,'0')}` : '')
     + (bf.length ? ` · ${bf.join('·')}` : '');
   document.getElementById('hpf').style.width = clamp(player.hp/player.hpMax*100,0,100)+'%';
   document.getElementById('mpf').style.width = clamp(player.mp/player.mpMax*100,0,100)+'%';
@@ -2550,6 +2552,24 @@ function refreshUI(){
 }
 // ---------- 멋진 인벤토리 ----------
 const GRADE_NAMES = ['일반','고급','희귀','영웅','전설'];
+// ===== English display overrides — data is KO-first; object KEYS stay stable so logic is untouched =====
+if(LANG==='en'){
+  const P={ red:['HP Potion','Restores 35%+15 HP.'], bigred:['Greater HP Potion','Restores 70%+30 HP.'],
+    blue:['MP Potion','Restores 40%+10 MP.'], haste:['Haste Potion','Move speed +33% for 5 min.'],
+    brave:['Warrior Potion','ATK +15% for 5 min.'], wafer:['Wind Elixir','Attack speed +33% for 5 min. (Elf only)'],
+    sage:['Sage Potion','Magic damage +30% for 5 min. (Wizard only)'], royal:['Royal Majesty','ATK +20% for 5 min. (Prince only)'],
+    iron:['Indomitable Elixir','Damage taken -25% for 5 min. (Knight only)'] };
+  for(const k in P){ if(POTIONS[k]){ POTIONS[k].name=P[k][0]; POTIONS[k].desc=P[k][1]; } }
+  const CN={prince:'Prince',knight:'Knight',elf:'Elf',wizard:'Wizard'};
+  for(const k in CN){ if(CLASSES[k]) CLASSES[k].name=CN[k]; }
+  const GN=['','Fine ','Rare ','Hero ','Legend '];
+  for(let i=0;i<GRADES.length;i++){ if(GN[i]!==undefined) GRADES[i].n=GN[i]; }
+  const GNM=['Common','Fine','Rare','Hero','Legend'];
+  for(let i=0;i<GRADE_NAMES.length;i++){ if(GNM[i]!==undefined) GRADE_NAMES[i]=GNM[i]; }
+  const SL={weapon:'Weapon',helmet:'Head',chest:'Chest',belt:'Belt',gloves:'Gloves',legs:'Legs',necklace:'Necklace'};
+  for(const k in SL){ if(SLOTS[k]) SLOTS[k].label=SL[k]; }
+  const _bh=document.querySelector('#board h3'); if(_bh) _bh.textContent='📜 Kardon Notice Board';
+}
 const GRADE_HEX = ['#e8dcc0','#6aa7ff','#c48aff','#ffa53d','#ff5a5a'];
 let invSlots = {};
 function iconOf(it){
@@ -2627,11 +2647,11 @@ const tipEl = document.getElementById('tooltip');
 function tipHtml(p){
   const it = p.item;
   const nm = `<div class="tnm" style="color:${GRADE_HEX[it.grade]}">${dispName(it)}</div>`;
-  const gr = `<div class="tdesc">${GRADE_NAMES[it.grade]} 등급${p.type==='equip'?' · 장착 중':''}</div>`;
+  const gr = `<div class="tdesc">${GRADE_NAMES[it.grade]}${LANG==='en'?'':' 등급'}${p.type==='equip'?(LANG==='en'?' · Equipped':' · 장착 중'):''}</div>`;
   let body='', key='';
   if(it.kind==='weapon'){
-    body = `<div class="tstat">공격력 ${it.atk}${it.ench>0?` <span style="color:#ffd24d">(+${it.ench*2})</span>`:''}</div>`
-         + (it.cls ? `<div class="tdesc" style="color:#ffd24d">⚜ ${CLASSES[it.cls].name} 전용</div>` : '');
+    body = `<div class="tstat">${LANG==='en'?'ATK':'공격력'} ${it.atk}${it.ench>0?` <span style="color:#ffd24d">(+${it.ench*2})</span>`:''}</div>`
+         + (it.cls ? `<div class="tdesc" style="color:#ffd24d">⚜ ${CLASSES[it.cls].name}${LANG==='en'?' only':' 전용'}</div>` : '');
     key = p.type==='equip' ? '클릭: 해제' : '클릭: 장착 · 우클릭: 버리기';
   } else if(it.kind==='armor'){
     const part = SLOTS[it.slot||'chest'].label;
@@ -2655,15 +2675,22 @@ function tipHtml(p){
             ${p.count>1?`<div class="tdesc">보유: ${p.count}개</div>`:''}`;
     key = '우클릭: 버리기 · 상점 판매 탭에서 판매';
   } else if(it.kind==='scroll'){
+    const en = LANG==='en';
     body = it.sub==='morph'
-      ? `<div class="tdesc">몬스터로 변신합니다. 사용 시 변신할 대상을 선택합니다.<br>변신 중 공격력·이동속도 보너스. (지속 10분)</div>`
+      ? (en ? `<div class="tdesc">Transform into a monster. Pick a target when used.<br>ATK & move-speed bonus while transformed. (10 min)</div>`
+            : `<div class="tdesc">몬스터로 변신합니다. 사용 시 변신할 대상을 선택합니다.<br>변신 중 공격력·이동속도 보너스. (지속 10분)</div>`)
       : it.sub==='teleport'
-      ? `<div class="tdesc">속삭이는 섬 마을로 즉시 귀환합니다.<br>어느 맵에서든 사용 가능. 단축키 <span style="color:#ffd24d">3</span></div>`
+      ? (en ? `<div class="tdesc">Instantly return to Whispering Isle Village.<br>Usable on any map. Hotkey <span style="color:#ffd24d">3</span></div>`
+            : `<div class="tdesc">속삭이는 섬 마을로 즉시 귀환합니다.<br>어느 맵에서든 사용 가능. 단축키 <span style="color:#ffd24d">3</span></div>`)
       : it.sub==='move'
-      ? `<div class="tdesc">가본 적 있는 지역 어디로든 순간이동합니다.<br>사용 시 목적지를 선택합니다.</div>`
-      : `<div class="tdesc">강화 창을 열어 원하는 ${it.sub==='weapon'?'무기':'방어구'}를 골라 강화합니다.<br>+6까지 안전, <span style="color:#ff8a7a">+7부터 실패 시 파괴</span>${it.blessed?'<br><span style="color:#ffd24d">축복: 실패해도 파괴되지 않음</span>':''}</div>`;
-    body += p.count>1?`<div class="tdesc">보유: ${p.count}장</div>`:'';
-    key = it.sub==='weapon'||it.sub==='armor' ? '클릭: 강화 창 열기 · 우클릭: 버리기' : '클릭: 사용 · 우클릭: 버리기';
+      ? (en ? `<div class="tdesc">Teleport to any region you've visited.<br>Pick a destination when used.</div>`
+            : `<div class="tdesc">가본 적 있는 지역 어디로든 순간이동합니다.<br>사용 시 목적지를 선택합니다.</div>`)
+      : (en ? `<div class="tdesc">Open the enchant window to enhance a ${it.sub==='weapon'?'weapon':'armor'}.<br>Safe to +6, <span style="color:#ff8a7a">destroys on fail from +7</span>${it.blessed?'<br><span style="color:#ffd24d">Blessed: never destroyed on fail</span>':''}</div>`
+            : `<div class="tdesc">강화 창을 열어 원하는 ${it.sub==='weapon'?'무기':'방어구'}를 골라 강화합니다.<br>+6까지 안전, <span style="color:#ff8a7a">+7부터 실패 시 파괴</span>${it.blessed?'<br><span style="color:#ffd24d">축복: 실패해도 파괴되지 않음</span>':''}</div>`);
+    body += p.count>1?`<div class="tdesc">${en?'Owned':'보유'}: ${p.count}${en?'':'장'}</div>`:'';
+    key = it.sub==='weapon'||it.sub==='armor'
+      ? (en?'Click: open enchant · Right-click: drop':'클릭: 강화 창 열기 · 우클릭: 버리기')
+      : (en?'Click: use · Right-click: drop':'클릭: 사용 · 우클릭: 버리기');
   }
   return nm+gr+body+`<div class="tkey">${key}</div>`;
 }
