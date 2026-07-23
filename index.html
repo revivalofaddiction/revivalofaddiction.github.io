@@ -252,6 +252,7 @@
   <button id="shopBtn" onclick="openShop()">상점</button>
   <button id="whBtn" onclick="openWarehouse()">창고</button>
   <button id="forgeBtn" onclick="openForge()">대장간</button>
+  <button id="arenaBtn" onclick="openArena()">🎲 경기장</button>
   <button onclick="saveGame(true)">저장</button>
 </div>
 
@@ -268,6 +269,7 @@
 <div class="panel" id="ench" style="top:90px; left:50%; transform:translateX(-50%); width:368px; max-height:74vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('ench').style.display='none'">✕</span><h3>⚒ 장비 강화</h3><div id="enchBody"></div></div>
 <div class="panel" id="board" style="top:70px; left:50%; transform:translateX(-50%); width:400px; max-height:76vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('board').style.display='none'">✕</span><h3>📜 카르돈 게시판</h3><div id="boardBody"></div></div>
 <div class="panel" id="forge" style="top:70px; left:50%; transform:translateX(-50%); width:400px; max-height:78vh; overflow-y:auto;"><span class="close" onclick="document.getElementById('forge').style.display='none'">✕</span><h3>⚒ 카르돈 대장간 — 장비 합성</h3><div id="forgeBody"></div></div>
+<div class="panel" id="arena" style="top:64px; left:50%; transform:translateX(-50%); width:430px; max-height:82vh; overflow-y:auto;"><span class="close" onclick="closeArena()">✕</span><h3>🎲 버그베어 경기장</h3><div id="arenaBody"></div></div>
 <div class="panel" id="ratep" style="top:170px; left:50%; transform:translateX(-50%); width:340px;"><span class="close" onclick="document.getElementById('ratep').style.display='none'">✕</span><h3 id="ratepTitle">⭐</h3><div id="ratepBody"></div></div>
 <div id="tooltip"></div>
 
@@ -1911,12 +1913,16 @@ function renderForge(){
     ${LANG==='en'
       ? 'Fuse two items of the same type and grade to attempt a higher grade.<br>On failure only the <b style="color:#ff8a7a">material</b> is destroyed. (Unequip gear before bringing it here)'
       : '같은 등급·같은 종류의 장비 2개를 합성해 상위 등급에 도전합니다.<br>실패하면 <b style="color:#ff8a7a">부재료만</b> 소멸합니다. (장착 중인 장비는 해제 후 가져오세요)'}</div>`;
-  h += `<div class="invsec">1. 주재료 ${main?'':'선택'}</div>`;
+  h += `<div class="invsec">${LANG==='en'?`1. Main item${main?'':' — choose'}`:`1. 주재료 ${main?'':'선택'}`}</div>`;
   const mains = gear.filter(i=>i.grade<4);
   if(!mains.length) h += '<div style="color:#776">합성 가능한 장비가 없습니다. (전설은 더 올릴 수 없음)</div>';
   for(const it of mains) h += forgeRow(it, `selForgeMain(${it.id})`, main && it.id===main.id);
   if(main){
-    h += `<div class="invsec" style="margin-top:10px">2. 부재료 (같은 ${main.kind==='weapon'?'무기':SLOTS[main.slot||'chest'].label+' 방어구'} · ${GRADE_NAMES[main.grade]} 등급)</div>`;
+    const _en = LANG==='en';
+    const _kindLbl = _en
+      ? (main.kind==='weapon' ? 'Weapon' : SLOTS[main.slot||'chest'].label+' armor')
+      : (main.kind==='weapon' ? '무기' : SLOTS[main.slot||'chest'].label+' 방어구');
+    h += `<div class="invsec" style="margin-top:10px">${_en?`2. Material (same ${_kindLbl} · ${GRADE_NAMES[main.grade]})`:`2. 부재료 (같은 ${_kindLbl} · ${GRADE_NAMES[main.grade]} 등급)`}</div>`;
     const subs = gear.filter(i=>forgeSubOk(main, i));
     if(!subs.length) h += '<div style="color:#776">조건에 맞는 부재료가 없습니다.</div>';
     for(const it of subs) h += forgeRow(it, `selForgeSub(${it.id})`, sub && it.id===sub.id);
@@ -1924,14 +1930,20 @@ function renderForge(){
   if(main && sub){
     const rate = FORGE_RATES[main.grade], cost = FORGE_COSTS[main.grade];
     const ratio = GRADES[main.grade+1].m / GRADES[main.grade].m;
-    const newStat = main.atk!=null ? `공격력 ${Math.round(main.atk*ratio)}` : `방어력 ${Math.round(main.def*ratio)}`;
+    const fen = LANG==='en';
+    const statLbl = main.atk!=null ? (fen?'ATK':'공격력') : (fen?'DEF':'방어력');
+    const newStat = `${statLbl} ${Math.round((main.atk!=null?main.atk:main.def)*ratio)}`;
     h += `<div style="margin-top:12px;padding-top:10px;border-top:1px solid #3a3226;font-size:12px;line-height:1.9">
       <b class="g${main.grade}">${dispName(main)}</b> → <b class="g${main.grade+1}">${GRADES[main.grade+1].n}${baseName(main)}</b><br>
-      결과: <b style="color:#9fd08a">${newStat}</b> (+강화 ${main.ench} 유지) · 성공 확률 <b style="color:#ffd24d">${rate}%</b><br>
+      ${fen
+        ? `Result: <b style="color:#9fd08a">${newStat}</b> (keeps +${main.ench}) · Success <b style="color:#ffd24d">${rate}%</b><br>
+      Cost <b style="color:#d4b96a">${cost.toLocaleString()}</b> adena (you have ${player.adena.toLocaleString()})
+      ${main.grade===3?'<br><span class="g4">★ Legendary gear can only be born through fusion.</span>':''}`
+        : `결과: <b style="color:#9fd08a">${newStat}</b> (+강화 ${main.ench} 유지) · 성공 확률 <b style="color:#ffd24d">${rate}%</b><br>
       비용 <b style="color:#d4b96a">${cost.toLocaleString()}</b> 아데나 (보유 ${player.adena.toLocaleString()})
-      ${main.grade===3?'<br><span class="g4">★ 전설 등급은 오직 합성으로만 탄생합니다.</span>':''}
+      ${main.grade===3?'<br><span class="g4">★ 전설 등급은 오직 합성으로만 탄생합니다.</span>':''}`}
       </div>
-      <div style="margin-top:8px"><button onclick="doForge()" style="width:100%">⚒ 합성하기 (${rate}%)</button></div>`;
+      <div style="margin-top:8px"><button onclick="doForge()" style="width:100%">${fen?`⚒ Fuse (${rate}%)`:`⚒ 합성하기 (${rate}%)`}</button></div>`;
   }
   el.innerHTML = h;
 }
@@ -1965,6 +1977,135 @@ function doForge(){
     sfx('break');
   }
   renderForge(); refreshUI();
+}
+
+// ===================== 버그베어 경기장 (경마식 아데나 베팅 · 아데나 소각처) =====================
+const ARENA_NAMES = ['Grommash','Snagtooth','Ironhide','Mudclaw','Bonecrush','Redfang','Skullsplitter','Gorehowl','Thornback','Ashfist'];
+const ARENA_COLORS = ['#ff6b5a','#5aa9ff','#7ed957','#ffd24d','#c48aff','#ff9e3d'];
+const ARENA_MIN_BET = 100;
+const ARENA_PAYOUT = 0.85;   // 하우스 엣지 15% — 장기적으로 아데나가 꾸준히 소각된다
+let arenaState = null, arenaTimer = null;
+function arenaRaceOnce(racers){   // 실제 경주 1회 시뮬 → 우승 index 반환 (배당 산출·실경주 동일 역학)
+  const prog = new Array(racers.length).fill(0);
+  let guard = 0;
+  while(guard++ < 100000){
+    for(let i=0;i<racers.length;i++){
+      prog[i] += rnd(0.4, 1.2) * (racers[i].speed/5) + rnd(0, 0.6);
+      if(prog[i] >= 100) return i;
+    }
+  }
+  return 0;
+}
+function arenaMakeRacers(){
+  const n = 5, pool = ARENA_NAMES.slice(), racers = [];
+  for(let i=0;i<n;i++){
+    const nm = pool.splice(ri(0, pool.length-1), 1)[0];
+    const speed = +rnd(3.0, 6.0).toFixed(2);   // 실력(속도)
+    racers.push({ id:i, name:nm, color:ARENA_COLORS[i%ARENA_COLORS.length], speed, prog:0 });
+  }
+  // 실제 경주 역학으로 몬테카를로 → 참 승률 추정 → 배당 = 지급률/승률. 하우스 엣지(15%)가 항상 유지된다.
+  const SIMS = 600, wins = new Array(n).fill(0);
+  for(let k=0;k<SIMS;k++) wins[arenaRaceOnce(racers)]++;
+  racers.forEach((r,i)=>{ r.prob = Math.max(0.02, wins[i]/SIMS); r.odds = Math.max(1.10, +(ARENA_PAYOUT / r.prob).toFixed(2)); });
+  return racers;
+}
+function openArena(){
+  if(!inTown(player)){ log(LANG==='en'?'The Arena is only open in town.':'경기장은 마을에서만 이용할 수 있습니다.','warn'); return; }
+  if(!arenaState) arenaState = { racers:null, pick:null, bet:1000, racing:false, wins:0, plays:0, best:0 };
+  if(!arenaState.racers) arenaState.racers = arenaMakeRacers();
+  arenaState.racing = false;
+  document.getElementById('arena').style.display='block';
+  renderArena();
+}
+function closeArena(){
+  if(arenaTimer){ clearInterval(arenaTimer); arenaTimer=null; }
+  if(arenaState) arenaState.racing=false;
+  document.getElementById('arena').style.display='none';
+}
+function arenaPick(i){ if(arenaState.racing) return; arenaState.pick=i; renderArena(); }
+function arenaSetBet(v){
+  if(arenaState.racing) return;
+  arenaState.bet = clamp(Math.floor(v), ARENA_MIN_BET, Math.max(ARENA_MIN_BET, player.adena));
+  renderArena();
+}
+function arenaBetInput(el){ const v = parseInt((el.value||'').replace(/[^0-9]/g,''),10); if(!isNaN(v)) arenaSetBet(v); }
+function renderArena(){
+  const el = document.getElementById('arenaBody'); if(!el) return;
+  const en = LANG==='en', s = arenaState;
+  let h = `<div style="color:#b7ab8d;font-size:12px;margin-bottom:8px;line-height:1.6">${en
+    ? 'Bet adena on a bugbear. If your pick crosses the line first, you win <b>bet × odds</b>. Lose and the adena is gone.'
+    : '버그베어에게 아데나를 겁니다. 고른 놈이 1등으로 결승선을 넘으면 <b>베팅액 × 배당</b>을 받고, 지면 잃습니다.'}</div>`;
+  h += `<div class="invsec">${en?'Racers':'출전 선수'}</div>`;
+  s.racers.forEach((r,i)=>{
+    const sel = s.pick===i;
+    h += `<div class="item srow${sel?' sel':''}" onclick="arenaPick(${i})" style="align-items:center">
+      <span style="font-size:16px">🐗</span>
+      <span class="nm" style="color:${r.color}">${r.name}</span>
+      <span style="font-size:11px;color:#8f8266">×${r.odds.toFixed(2)}</span></div>
+      <div style="height:12px;background:#241f18;border-radius:6px;overflow:hidden;margin:-2px 0 6px">
+        <div id="lane${i}" style="height:100%;width:${Math.min(100,r.prog)}%;background:${r.color};transition:width .06s linear"></div></div>`;
+  });
+  h += `<div class="invsec" style="margin-top:8px">${en?'Your bet':'베팅'}</div>`;
+  h += `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+    <input id="arenaBetIn" value="${s.bet}" onchange="arenaBetInput(this)" onclick="event.stopPropagation()" ${s.racing?'disabled':''}
+      style="width:110px;background:#241f18;border:1px solid #3a3226;color:#e8dcc0;border-radius:5px;padding:4px 7px;font-size:13px">
+    <span style="color:#8f8266;font-size:11px">${en?'adena':'아데나'}</span>`;
+  [1000,10000,100000].forEach(v=>{ h += `<button onclick="arenaSetBet(${v})" ${s.racing?'disabled':''} style="font-size:11px">${v.toLocaleString()}</button>`; });
+  h += `<button onclick="arenaSetBet(${Math.max(ARENA_MIN_BET, Math.floor(player.adena/10))})" ${s.racing?'disabled':''} style="font-size:11px">10%</button></div>`;
+  const winPreview = s.pick!=null ? Math.floor(s.bet * s.racers[s.pick].odds) : 0;
+  h += `<div style="font-size:12px;color:#8f8266;margin-bottom:6px">${s.pick!=null
+    ? (en?`Pick: <b style="color:${s.racers[s.pick].color}">${s.racers[s.pick].name}</b> · win pays <b style="color:#9fd08a">${winPreview.toLocaleString()}</b>`
+        : `선택: <b style="color:${s.racers[s.pick].color}">${s.racers[s.pick].name}</b> · 적중 시 <b style="color:#9fd08a">${winPreview.toLocaleString()}</b>`)
+    : (en?'Pick a racer above.':'위에서 선수를 고르세요.')}</div>`;
+  h += `<div id="arenaResult" style="min-height:20px;font-size:13px;font-weight:bold;margin-bottom:6px"></div>`;
+  const canBet = s.pick!=null && !s.racing && player.adena>=s.bet && s.bet>=ARENA_MIN_BET;
+  h += `<button onclick="arenaStart()" ${canBet?'':'disabled'} style="width:100%">${s.racing?(en?'Racing…':'경주 중…'):(en?`🏁 Start Race (${s.bet.toLocaleString()})`:`🏁 경주 시작 (${s.bet.toLocaleString()})`)}</button>`;
+  h += `<div style="font-size:11px;color:#8f8266;margin-top:8px">${en
+    ? `Races: ${s.plays} · Wins: ${s.wins} · Biggest win: ${s.best.toLocaleString()}`
+    : `총 ${s.plays}경기 · ${s.wins}적중 · 최고 상금 ${s.best.toLocaleString()}`}</div>`;
+  el.innerHTML = h;
+}
+function arenaStart(){
+  const s = arenaState; if(!s || s.racing || s.pick==null) return;
+  if(player.adena < s.bet || s.bet < ARENA_MIN_BET){ log(LANG==='en'?'Not enough adena.':'아데나가 부족합니다.','warn'); return; }
+  player.adena -= s.bet;   // 판돈 즉시 회수 — 아데나 소각 지점
+  s.racing = true; s.plays++;
+  s.racers.forEach(r=>r.prog=0);
+  sfx('coin'); refreshUI(); renderArena();
+  let finished = null;
+  arenaTimer = setInterval(()=>{
+    for(const r of s.racers){
+      r.prog += rnd(0.4, 1.2) * (r.speed/5) + rnd(0, 0.6);   // 실력 + 랜덤 서지(역전 여지)
+      if(r.prog>=100 && !finished) finished = r;
+    }
+    for(let i=0;i<s.racers.length;i++){ const lane=document.getElementById('lane'+i); if(lane) lane.style.width = Math.min(100,s.racers[i].prog)+'%'; }
+    if(finished){ clearInterval(arenaTimer); arenaTimer=null; arenaFinish(finished); }
+  }, 60);
+}
+function arenaFinish(winner){
+  const s = arenaState, en = LANG==='en';
+  s.racing = false;
+  const won = s.pick===winner.id;
+  let msg, col;
+  if(won){
+    const odds = s.racers[s.pick].odds, prize = Math.floor(s.bet * odds), net = prize - s.bet;
+    player.adena += prize; s.wins++; if(prize>s.best) s.best=prize;
+    col = '#9fd08a';
+    msg = en ? `🏆 ${winner.name} wins! You won ${prize.toLocaleString()} (+${net.toLocaleString()} net)`
+             : `🏆 ${winner.name} 우승! ${prize.toLocaleString()} 획득 (순이익 +${net.toLocaleString()})`;
+    const big = odds >= 4;
+    sfx(big?'ench':'horn'); flash(big?'#ffd24d':'#d4b96a');
+    addFloat(player.x, player.y-1, `+${prize.toLocaleString()}`, '#ffd24d');
+  } else {
+    col = '#ff8a7a';
+    msg = en ? `${winner.name} wins. You lost ${s.bet.toLocaleString()}.`
+             : `${winner.name} 우승. ${s.bet.toLocaleString()} 잃었습니다.`;
+    sfx('break');
+  }
+  s.racers = arenaMakeRacers(); s.pick = null;
+  refreshUI(); saveGame(false); renderArena();
+  const res = document.getElementById('arenaResult');
+  if(res){ res.style.color = col; res.textContent = msg; }
 }
 
 // ===================== 창고 =====================
@@ -2971,7 +3112,7 @@ function refreshHud(){
   document.getElementById('mpt').textContent = `${Math.ceil(player.mp)} / ${player.mpMax}`;
   document.getElementById('hudAdena').textContent = player.adena.toLocaleString()+(LANG==='en'?' adena':' 아데나');
   const town = inTown(player);
-  for(const bid of ['shopBtn','whBtn','forgeBtn']){
+  for(const bid of ['shopBtn','whBtn','forgeBtn','arenaBtn']){
     const b = document.getElementById(bid);
     b.style.opacity = town ? '1' : '.4';
     b.title = town ? '' : '마을에서만 이용 가능';
@@ -5489,6 +5630,7 @@ function applyLangEN(){
     '인벤토리 (I)':'Inventory (I)','캐릭터 (C)':'Character (C)','혈맹 (G)':'Clan (G)','자동사냥':'Auto Hunt',
     '일일 목표':'Daily Goals','🎯 목표':'🎯 Goals',
     '💤 수면':'💤 Sleep','상점':'Shop','창고':'Storage','대장간':'Forge','저장':'Save',
+    '🎲 경기장':'🎲 Arena','🎲 버그베어 경기장':'🎲 Bugbear Arena',
     '인벤토리':'Inventory','캐릭터 정보':'Character','혈맹':'Clan','카르돈 상점':'Kardon Shop','변신':'Polymorph',
     '순간이동':'Teleport','카르돈 창고':'Kardon Storage','단축바 등록':'Assign Hotbar','⚒ 장비 강화':'⚒ Enchant',
     '🐾 펫':'🐾 Pet','펫':'Pet',
