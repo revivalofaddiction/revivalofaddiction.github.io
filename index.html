@@ -744,6 +744,7 @@ function mkWeapon(tier, gi){
 const WIZARD_ROBES = ['견습생 로브','수습 마법사 로브','현자 로브','대마법사 로브','아크메이지 로브','태초의 로브'];
 const PRINCE_ARMORS = ['근위대 갑주','왕실 기사 갑주','왕가의 갑주','제왕의 갑주','태양왕의 갑주','카르돈 제국의 갑주'];
 const KNIGHT_PLATES = ['수련 기사 판금','강철 판금 갑주','수호 기사 판금','불굴의 판금 갑주','철벽의 대판금','불멸 기사단 판금'];
+const ELF_GARBS = ['사냥꾼 가죽옷','정찰병 경갑','엘븐 레인저 갑옷','바람추적자 갑옷','실피드 레인저 갑옷','진 실피드 레인저 갑옷'];
 function mkArmor(tier, slot, gi){
   const g = gi!=null ? GRADES[gi] : pickGrade();
   slot = slot || DROP_ARMOR_SLOTS[ri(0, DROP_ARMOR_SLOTS.length-1)];   // 반지는 드랍 안 됨
@@ -766,6 +767,13 @@ function mkArmor(tier, slot, gi){
     const ridx = clamp(Math.floor((tier-1)/2.5), 0, KNIGHT_PLATES.length-1);
     const rdef = Math.max(1, Math.round((2 + tier*2.5) * 1.45 * g.m));
     return {id:itemId++, kind:'armor', slot:'chest', cls:'knight', name:g.n+KNIGHT_PLATES[ridx], def:rdef, grade:g.c, ench:0};
+  }
+  // 요정 전용 레인저 갑옷: 가슴 방어구의 30% (내가 요정일 때) — 방어는 중간, 약간의 공격력이 붙는다
+  if(slot==='chest' && player && player.cls==='elf' && Math.random()<.3){
+    const ridx = clamp(Math.floor((tier-1)/2.5), 0, ELF_GARBS.length-1);
+    const atk = Math.round((1 + (ridx*2+1)*1.6) * g.m);
+    const rdef = Math.max(1, Math.round((2 + tier*2.5) * .8 * g.m));
+    return {id:itemId++, kind:'armor', slot:'chest', cls:'elf', name:g.n+ELF_GARBS[ridx], def:rdef, atk, grade:g.c, ench:0};
   }
   const idx = clamp(tier-1+ri(0,1), 0, 4);
   const name = g.n + ARMORS[slot][idx];
@@ -5206,6 +5214,15 @@ function drawPlayer(){
   cx.scale(PL_SCALE, PL_SCALE);
   const X = 0, Y = 0;
   const skin = '#e8c9a0';
+  // 방어구 등급 오라: 영웅(3)·전설(4) 가슴 방어구를 입으면 캐릭터 뒤로 은은한 빛이 퍼진다
+  const _ch = p.chest, _ag = _ch ? (_ch.grade||0) : -1;
+  if(!p.morph && _ag >= 3){
+    const gc = GRADE_HEX[_ag] || '#d4b96a';
+    cx.globalAlpha = _ag>=4 ? .32 + Math.sin(animT*4)*.12 : .24;   // 발밑 룬빛
+    E(X, Y-1, 16, 6.5, gc); cx.globalAlpha = 1;
+    cx.globalAlpha = _ag>=4 ? .2 + Math.sin(animT*4)*.1 : .14;      // 몸 뒤 오라
+    E(X, Y-16, 17, 23, gc); cx.globalAlpha = 1;
+  }
   if(p.morph){
     // 변신 상태: 몬스터 모습으로 (공격 모션 전달)
     drawMobSprite(p.morph.kind, f, wob*.8, {aggro:false, ph:0, moving:p.moving, atk01:atk, pal:p.morph.pal});
@@ -5309,6 +5326,18 @@ function drawPlayer(){
     E(X,Y-38.5,1,1,'#d43a5a');                                      // 왕관 보석
   }
   }
+  // 방어구 등급 악센트: 희귀(2)+ 어깨 보석, +7강 이상 방어구 반짝임 — 좋은 갑옷을 입을수록 화려해진다
+  if(!p.morph){
+    if(_ag >= 2){
+      const gc = GRADE_HEX[_ag] || '#d4b96a';
+      E(X-7.5, Y-24, 2.4, 2.4, gc); E(X+7.5, Y-24, 2.4, 2.4, gc);
+      E(X-7.5, Y-24.8, 1, 1, '#fff'); E(X+7.5, Y-24.8, 1, 1, '#fff');
+    }
+    if(_ch && _ch.ench>=7){
+      cx.globalAlpha = .45 + Math.sin(animT*6)*.3;
+      E(X, Y-19, 1.8, 2.2, '#fff'); cx.globalAlpha = 1;
+    }
+  }
   hitFlash(X, Y-17, 11, 16, p.hitT||0);
   cx.restore();
   // 머리 위 HP/MP 바 (클래식 스타일: 빨강 위, 파랑 아래)
@@ -5392,6 +5421,7 @@ const NAME_EN = {
   '아크메이지 로브':'Grand Archmage Robe','태초의 로브':'Primal Robe',
   '근위대 갑주':'Guard Plate','왕실 기사 갑주':'Royal Knight Plate','왕가의 갑주':'Royal Plate','제왕의 갑주':'Imperial Plate',
   '태양왕의 갑주':'Sun King Plate','카르돈 제국의 갑주':'Kardon Empire Plate',
+  '사냥꾼 가죽옷':"Hunter's Leathers",'정찰병 경갑':'Scout Garb','엘븐 레인저 갑옷':'Elven Ranger Garb','바람추적자 갑옷':'Windstalker Garb','실피드 레인저 갑옷':'Sylph Ranger Garb','진 실피드 레인저 갑옷':'True Sylph Ranger Garb',
   // 소모품/보석/주문서
   '체력 회복제':'Health Potion','강력 체력 회복제':'Greater Health Potion','마력 회복제':'Mana Potion',
   '신속의 물약':'Haste Potion','용사의 물약':'Brave Potion','바람의 비약':'Wind Elixir','현자의 물약':'Sage Potion','군주의 위엄':'Royal Majesty','불굴의 영약':'Iron Will Elixir','불멸의 성기사':'Immortal Paladin','수련용 대검':'Training Greatsword','기사의 전투도끼':'Knight Battleaxe','강철 파쇄검':'Steel Crusher','수호자의 대검':'Guardian Greatsword','불굴의 전투도끼':'Indomitable Axe','불멸의 참수검':'Immortal Decapitator','수련 기사 판금':'Squire Plate','강철 판금 갑주':'Steel Plate','수호 기사 판금':'Guardian Plate','불굴의 판금 갑주':'Indomitable Plate','철벽의 대판금':'Ironwall Plate','불멸 기사단 판금':'Immortal Order Plate',
@@ -5418,6 +5448,7 @@ function applyLangEN(){
   for(let i=0;i<WIZARD_ROBES.length;i++) WIZARD_ROBES[i] = trEN(WIZARD_ROBES[i]);
   for(let i=0;i<PRINCE_ARMORS.length;i++) PRINCE_ARMORS[i] = trEN(PRINCE_ARMORS[i]);
   for(let i=0;i<KNIGHT_PLATES.length;i++) KNIGHT_PLATES[i] = trEN(KNIGHT_PLATES[i]);
+  for(let i=0;i<ELF_GARBS.length;i++) ELF_GARBS[i] = trEN(ELF_GARBS[i]);
   for(const m of MOBS) m.name = trEN(m.name);
   for(const k in BOSS_DEFS){ const b=BOSS_DEFS[k]; b.name=trEN(b.name); b.title=trEN(b.title); b.wake=b.name+' has awakened!!'; }
   for(const k in MAP_DEFS){ MAP_DEFS[k].name = trEN(MAP_DEFS[k].name); }
