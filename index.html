@@ -2560,6 +2560,12 @@ const PET_TYPES = {
   wisp:     {name:'빛의 정령',    kind:'pet_wisp', color:'#c8a2ff', base:6, desc:'떠다니며 함께 싸우는 신비한 정령.'},
 };
 const PET_TYPES_EN = { emberpup:'Ember Pup', frostcub:'Frost Cub', wisp:'Light Wisp' };
+const PET_DESC_EN = {
+  emberpup:'A whelp from the Inferno. Reckless and aggressive.',
+  frostcub:'A calm, sturdy companion. Steady damage.',
+  wisp:'A mysterious spirit that drifts and fights at your side.',
+};
+function petTypeDesc(type){ return LANG==='en' ? PET_DESC_EN[type] : PET_TYPES[type].desc; }
 function petStage(pet){ return pet.lv>=35 ? 2 : pet.lv>=15 ? 1 : 0; }
 function petStageMult(pet){ return [1, 1.35, 1.8][petStage(pet)]; }
 function petTypeName(type){ return LANG==='en' ? PET_TYPES_EN[type] : PET_TYPES[type].name; }
@@ -2734,7 +2740,7 @@ function renderPet(){
   for(const id in PET_TYPES){
     const t = PET_TYPES[id];
     h += `<div class="item" style="display:block;padding:8px 4px">
-      <div><b style="color:${t.color}">${petTypeName(id)}</b> <span style="color:#8f8266;font-size:11px">· ${t.desc}</span></div>
+      <div><b style="color:${t.color}">${petTypeName(id)}</b> <span style="color:#8f8266;font-size:11px">· ${petTypeDesc(id)}</span></div>
       <button onclick="hatchPet('${id}')" style="margin-top:5px">${en?`Hatch · ${PET_HATCH_COST.toLocaleString()} adena`:`부화 · ${PET_HATCH_COST.toLocaleString()} 아데나`}</button></div>`;
   }
   h += `<div style="color:#8f8266;font-size:11px;margin-top:8px">${en?'Bosses can drop a Pet Egg 🥚 — use it for a free random pet. Pets auto-attack and evolve at Lv.15 and Lv.35.':'보스가 펫 알 🥚을 드랍합니다 — 사용하면 무작위 펫이 무료로 부화해요. 펫은 자동 공격하고 Lv.15·35에 진화합니다.'}</div>`;
@@ -5485,6 +5491,7 @@ function applyLangEN(){
     '💤 수면':'💤 Sleep','상점':'Shop','창고':'Storage','대장간':'Forge','저장':'Save',
     '인벤토리':'Inventory','캐릭터 정보':'Character','혈맹':'Clan','카르돈 상점':'Kardon Shop','변신':'Polymorph',
     '순간이동':'Teleport','카르돈 창고':'Kardon Storage','단축바 등록':'Assign Hotbar','⚒ 장비 강화':'⚒ Enchant',
+    '🐾 펫':'🐾 Pet','펫':'Pet',
     '📜 카르돈 게시판':'📜 Kardon Board','⚒ 카르돈 대장간 — 장비 합성':'⚒ Kardon Forge — Fusion',
     '☕ 개발자 후원하기':'☕ Support the Dev','🎁 후원 쿠폰 입력':'🎁 Redeem Coupon',
     '💬 버그 신고 / 의견':'💬 Report a bug / Feedback',
