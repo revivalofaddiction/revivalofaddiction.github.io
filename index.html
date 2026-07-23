@@ -2804,6 +2804,27 @@ function hatchFromEgg(){
   const panel = document.getElementById('pet'); if(panel){ panel.style.display='block'; renderPet(); }
   refreshPetBtn(); refreshUI(); saveGame(false);
 }
+// ── 알 조합: 남는 펫 알 3~5개를 합쳐 시작 레벨이 높은(강한) 펫을 만든다. 알 소진처 + 도박 요소 ──
+const EGG_FUSE_LV = { 3:15, 4:25, 5:40 };   // 넣는 알 개수 → 새 펫 시작 레벨
+function eggCount(){ return player.inv.filter(i=>i.kind==='egg').length; }
+function fuseEggs(n){
+  const en = LANG==='en';
+  if(!EGG_FUSE_LV[n]) return;
+  const eggs = player.inv.filter(i=>i.kind==='egg');
+  if(eggs.length < n){ log(en?`You need ${n} eggs to fuse.`:`조합하려면 알이 ${n}개 필요합니다.`,'warn'); return; }
+  for(let i=0;i<n;i++) removeItem(eggs[i].id);
+  const types = Object.keys(PET_TYPES), type = types[ri(0, types.length-1)];
+  const jackpot = Math.random() < 0.12;                 // 12% 대박 — 도박 손맛
+  const lv = EGG_FUSE_LV[n] + (jackpot ? 10 : 0);
+  const pet = newPet(type); pet.lv = lv;
+  addPet(pet);
+  log((en?`🥚 Fused ${n} eggs → `:`🥚 알 ${n}개 조합 → `) + petDisplayName(pet) + ` (Lv.${lv})`
+      + (jackpot ? (en?' ✨ JACKPOT! +10 levels!':' ✨ 대박! +10레벨!') : ''), 'warn');
+  sfx(jackpot?'ench':'level'); flash(jackpot?'#ffd24d':'#d4b96a');
+  addFloat(player.x, player.y-1, jackpot?'✨ JACKPOT':'🥚→🐾', jackpot?'#ffd24d':'#9fd08a');
+  const panel = document.getElementById('pet'); if(panel) panel.style.display='block';
+  refreshPetBtn(); renderPet(); refreshUI(); saveGame(false);
+}
 // 보관함의 펫과 현재 활성 펫을 교체 (레벨·이름 그대로 유지)
 function switchPet(i){
   if(!player.pets || !player.pets[i]) return;
@@ -2876,6 +2897,18 @@ function renderPet(){
         <button onclick="switchPet(${i})" style="font-size:11px">${en?'Switch':'교체'}</button></div>`;
     });
   }
+  // 알 조합 — 남는 펫 알을 강한 펫으로
+  const eggs = eggCount();
+  h += `<div class="invsec" style="margin-top:12px">${en?`Fuse Pet Eggs — you have ${eggs} 🥚`:`펫 알 조합 — 보유 ${eggs}개 🥚`}</div>`;
+  h += `<div style="color:#b7ab8d;font-size:11px;margin-bottom:6px">${en
+    ? 'Combine spare eggs into one stronger pet that starts at a higher level. 12% jackpot: +10 levels.'
+    : '남는 알을 합쳐 시작 레벨이 높은 강한 펫을 만듭니다. 12% 확률로 대박(+10레벨).'}</div>`;
+  h += `<div style="display:flex;gap:6px;flex-wrap:wrap">`;
+  [3,4,5].forEach(nn=>{
+    const ok = eggs >= nn;
+    h += `<button onclick="fuseEggs(${nn})" ${ok?'':'disabled'} style="font-size:11px">${en?`Fuse ${nn} → Lv.${EGG_FUSE_LV[nn]}`:`알 ${nn}개 → Lv.${EGG_FUSE_LV[nn]}`}</button>`;
+  });
+  h += `</div>`;
   // 새 펫 부화
   h += `<div class="invsec" style="margin-top:12px">${en?'Hatch a new pet':'새 펫 부화'}</div>`;
   for(const id in PET_TYPES){
