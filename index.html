@@ -3292,13 +3292,14 @@ function renderShop(){
     <span style="flex:1"></span><span style="color:#d4b96a;font-size:12px">${player.adena.toLocaleString()} ${EN?'adena':'아데나'}</span>
   </div>`;
   if(shopTab==='buy'){
-    h += SHOP.map((s,i)=>
-      `<div class="item"><span class="nm">${s.name} — <span style="color:#d4b96a">${s.price.toLocaleString()}</span></span>
+    h += SHOP.map((s,i)=>{
+      if(s._icon==null) s._icon = iconOf(s.mk());   // 판매 아이템 미리보기 아이콘 (1회 계산 후 캐시)
+      return `<div class="item"><span style="font-size:16px;margin-right:2px">${s._icon}</span><span class="nm">${s.name} — <span style="color:#d4b96a">${s.price.toLocaleString()}</span></span>
        <input type="number" class="qtyIn" id="buyQty${i}" value="${shopQtys[i]||1}" min="1" max="999"
               onchange="shopQtys[${i}]=this.value" onclick="event.stopPropagation()">
-       <button onclick="buyItem(${i})">구매</button>
-       <button onclick="buyMax(${i})" style="font-size:11px">최대</button></div>`).join('');
-    h += '<div style="color:#8f8266;font-size:11px;margin-top:8px">수량을 입력해 대량 구매할 수 있습니다. [최대]는 아데나가 허락하는 만큼 구매합니다.</div>';
+       <button onclick="buyItem(${i})">${EN?'Buy':'구매'}</button>
+       <button onclick="buyMax(${i})" style="font-size:11px">${EN?'Max':'최대'}</button></div>`;}).join('');
+    h += `<div style="color:#8f8266;font-size:11px;margin-top:8px">${EN?'Enter a quantity to bulk-buy. [Max] buys as many as your adena allows.':'수량을 입력해 대량 구매할 수 있습니다. [최대]는 아데나가 허락하는 만큼 구매합니다.'}</div>`;
     // 소지품 확장 — 배낭 장수
     const full = player.invSlots >= INV_CAP, en = LANG==='en';
     h += `<div class="invsec" style="margin-top:14px">🎒 ${en?'Backpack Merchant':'배낭 장수'}</div>
@@ -4111,14 +4112,17 @@ function minimapOf(id){
 }
 function drawBuffHud(){
   const rows = [];
-  if(player.morph) rows.push({label:'🔮 변신 · '+player.morph.name, t:player.morph.t, max:600, c:'#d4b96a'});
-  if(player.buffs && player.buffs.haste>0) rows.push({label:'🌀 신속의 물약', t:player.buffs.haste, max:300, c:'#5ac878'});
-  if(player.buffs && player.buffs.brave>0) rows.push({label:'⚔ 용사의 물약', t:player.buffs.brave, max:300, c:'#e0963c'});
-  if(player.buffs && player.buffs.wafer>0) rows.push({label:'🏹 바람의 비약', t:player.buffs.wafer, max:300, c:'#5ad8a8'});
-  if(player.buffs && player.buffs.sage>0) rows.push({label:'🔮 현자의 물약', t:player.buffs.sage, max:300, c:'#9a7aff'});
-  if(player.buffs && player.buffs.royal>0) rows.push({label:'👑 군주의 위엄', t:player.buffs.royal, max:300, c:'#e8c840'});
-  if(player.buffs && player.buffs.iron>0) rows.push({label:'🛡️ 불굴의 영약', t:player.buffs.iron, max:300, c:'#b8c4d8'});
-  if(player.buffs && player.buffs.bulwark>0) rows.push({label:'⚔️ 불굴', t:player.buffs.bulwark, max:10, c:'#eaeef6'});
+  const en = LANG==='en';
+  const L = en ? {morph:'Morph', haste:'Haste', brave:'Brave', wafer:'Wind Elixir', sage:'Sage', royal:'Royal Majesty', iron:'Iron Will', bulwark:'Bulwark'}
+               : {morph:'변신', haste:'신속의 물약', brave:'용사의 물약', wafer:'바람의 비약', sage:'현자의 물약', royal:'군주의 위엄', iron:'불굴의 영약', bulwark:'불굴'};
+  if(player.morph) rows.push({label:'🔮 '+L.morph+' · '+player.morph.name, t:player.morph.t, max:600, c:'#d4b96a'});
+  if(player.buffs && player.buffs.haste>0) rows.push({label:'🌀 '+L.haste, t:player.buffs.haste, max:300, c:'#5ac878'});
+  if(player.buffs && player.buffs.brave>0) rows.push({label:'⚔ '+L.brave, t:player.buffs.brave, max:300, c:'#e0963c'});
+  if(player.buffs && player.buffs.wafer>0) rows.push({label:'🏹 '+L.wafer, t:player.buffs.wafer, max:300, c:'#5ad8a8'});
+  if(player.buffs && player.buffs.sage>0) rows.push({label:'🔮 '+L.sage, t:player.buffs.sage, max:300, c:'#9a7aff'});
+  if(player.buffs && player.buffs.royal>0) rows.push({label:'👑 '+L.royal, t:player.buffs.royal, max:300, c:'#e8c840'});
+  if(player.buffs && player.buffs.iron>0) rows.push({label:'🛡️ '+L.iron, t:player.buffs.iron, max:300, c:'#b8c4d8'});
+  if(player.buffs && player.buffs.bulwark>0) rows.push({label:'⚔️ '+L.bulwark, t:player.buffs.bulwark, max:10, c:'#eaeef6'});
   if(!rows.length) return;
   const X = 12; let Y = 14;
   cx.font = '12px sans-serif';
